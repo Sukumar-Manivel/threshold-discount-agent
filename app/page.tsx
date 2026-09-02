@@ -98,6 +98,22 @@ export default function Home() {
     }
   };
 
+  const handleSwitchProduct = async (productId: string) => {
+    try {
+      const res = await fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'switch_product', productId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setState(data);
+      }
+    } catch (err) {
+      console.error('Failed to switch product:', err);
+    }
+  };
+
   const handleSetPhoneDWatching = async (prompt: string) => {
     try {
       const res = await fetch('/api/trigger-coupon', {
@@ -191,6 +207,7 @@ export default function Home() {
         onSimOrder={handleSimOrder}
         onFastForward={handleFastForward}
         onUpdateKeys={handleUpdateKeys}
+        onSwitchProduct={handleSwitchProduct}
         viewMode={viewMode}
         onToggleViewMode={setViewMode}
       />
@@ -229,9 +246,9 @@ export default function Home() {
         isOpen={modalState.isOpen}
         onClose={() => setModalState({ isOpen: false })}
         onSuccess={handlePaymentSuccess}
-        amount={modalState.amount || 79900}
+        amount={modalState.amount || state.activeProduct.retailPrice}
         buyerName={modalState.buyerName || 'Buyer'}
-        skuName="iPhone 17 Pro"
+        skuName={state.activeProduct.name}
         isDiscounted={modalState.isDiscounted}
       />
     </div>

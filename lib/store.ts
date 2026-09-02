@@ -82,6 +82,21 @@ export interface SellerState {
   tierApplied?: string;
 }
 
+export interface SellerConfig {
+  tiers: Record<number, number>;
+  maxDiscountDepth: number;
+  isApproved: boolean;
+  approvedAt: string | null;
+}
+
+export interface ParseIntentResult {
+  matchedSkuId: string | null;
+  maxPrice: number | null;
+  confidence: number;
+  reasoning: string;
+  modelUsed: string;
+}
+
 export interface AppState {
   activeProduct: Product;
   discountTiers: Record<number, number>;
@@ -93,10 +108,14 @@ export interface AppState {
   secondsRemaining: number;
   startTime: number | null;
   logs: string[];
+  aiReasoningLog: string[];
   phoneStates: PhoneState;
   sellerState: SellerState;
+  sellerConfig: SellerConfig;
   razorpayKeys: { keyId: string; keySecret: string };
   simulatedVolumeCount: number;
+  lastParseResult: ParseIntentResult | null;
+  couponTargetingSummary: string | null;
 }
 
 function getFormattedTime(): string {
@@ -121,6 +140,7 @@ const initialState: AppState = {
   logs: [
     `${getFormattedTime()} Decision Engine online. Tracking aggregate demand for ${DEFAULT_PRODUCT.name} (${DEFAULT_PRODUCT.sku}).`,
   ],
+  aiReasoningLog: [],
   phoneStates: {
     phoneA: { ordered: false },
     phoneB: { ordered: false },
@@ -147,11 +167,19 @@ const initialState: AppState = {
     totalOrdersReceived: 0,
     settlementStatus: 'pending',
   },
+  sellerConfig: {
+    tiers: { ...DEFAULT_DISCOUNT_TIERS },
+    maxDiscountDepth: 0.10,
+    isApproved: false,
+    approvedAt: null,
+  },
   razorpayKeys: {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || '',
   },
   simulatedVolumeCount: 0,
+  lastParseResult: null,
+  couponTargetingSummary: null,
 };
 
 let currentState: AppState = JSON.parse(JSON.stringify(initialState));
@@ -163,6 +191,30 @@ export function switchProduct(productId: string) {
   currentState.phoneStates.phoneC.promptText = `buy ${product.name}`;
   addLog(`${getFormattedTime()} Active product changed to: ${product.name} (SKU: ${product.sku}, Retail: ₹${product.retailPrice.toLocaleString('en-IN')})`);
   return currentState;
+}
+
+export function updateSellerConfig(tiers: Record<number, number>, maxDiscountDepth: number) {
+  currentState.sellerConfig = {
+    tiers: { ...tiers },
+    maxDiscountDepth,
+    isApproved: true,
+    approvedAt: getFormattedTime(),
+  };
+  // Apply seller's custom tiers as the active discount tiers
+  currentState.discountTiers = { ...tiers };
+  addLog(`${getFormattedTime()} Seller Configuration Saved — ${Object.keys(tiers).length} tier(s) configured (max depth: ${Math.round(maxDiscountDepth * 100)}%). Seller approved.`);
+}
+
+export function setLastParseResult(result: ParseIntentResult) {
+  currentState.lastParseResult = result;
+  addAiLog(`${getFormattedTime()} LLM Intent Parse → SKU: ${result.matchedSkuId || 'none'}, Confidence: ${(result.confidence * 100).toFixed(0)}%, Model: ${result.modelUsed}`);
+  addAiLog(`${getFormattedTime()} LLM Reasoning: "${result.reasoning}"`);
+}
+
+export function addAiLog(message: string) {
+  currentState.aiReasoningLog.push(message);
+  // Also add to main log with AI prefix for visibility
+  currentState.logs.push(`🤖 ${message}`);
 }
 
 export async function autoAuthorizePhoneDIfNeeded() {
@@ -297,7 +349,7 @@ export async function authorizeBuyerOrder(
   return newOrder;
 }
 
-export function checkThresholdAndTriggerCoupon(force: boolean = false) {
+export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
   const currentCount = currentState.orders.length;
 
   if (!force && currentCount < 2) {
@@ -310,10 +362,75 @@ export function checkThresholdAndTriggerCoupon(force: boolean = false) {
   const discountPctInt = Math.round(discountPct * 100);
   const discountedPrice = Math.round(currentState.activeProduct.retailPrice * (1 - discountPct));
 
+  // Build candidate pool for LLM targeting
+  const candidates: { userId: string; label: string; searchedAt: string; searchCount: number; isFrequentBuyer: boolean }[] = [];
+  if (!currentState.phoneStates.phoneA.ordered && !currentState.phoneStates.phoneA.couponReceived) {
+    candidates.push({ userId: 'phoneA', label: 'Manual Buyer #1', searchedAt: '3m ago', searchCount: 2, isFrequentBuyer: false });
+  }
+  if (!currentState.phoneStates.phoneB.ordered && !currentState.phoneStates.phoneB.couponReceived) {
+    candidates.push({ userId: 'phoneB', label: 'Manual Buyer #2', searchedAt: '5m ago', searchCount: 1, isFrequentBuyer: false });
+  }
+  if (!currentState.phoneStates.phoneD.ordered && !currentState.phoneStates.phoneD.couponReceived) {
+    candidates.push({ userId: 'phoneD', label: 'Standing-Order Agent', searchedAt: '1m ago', searchCount: 3, isFrequentBuyer: true });
+  }
+
+  if (candidates.length === 0) return;
+
+  // Try LLM-powered coupon targeting; fall back to deterministic logic if LLM unavailable
+  let selectedUserIds: string[] = [];
+  let targetingSummary = '';
+
+  try {
+    const targetingRes = await fetch(`${getBaseUrl()}/api/coupon-targeting`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        productId: currentState.activeProduct.id,
+        productName: currentState.activeProduct.name,
+        gap,
+        maxNudges: 3,
+        maxCouponValue: discountPctInt,
+        candidates,
+      }),
+    });
+
+    if (targetingRes.ok) {
+      const targeting = await targetingRes.json();
+      if (targeting.selected && Array.isArray(targeting.selected)) {
+        selectedUserIds = targeting.selected.map((s: { userId: string }) => s.userId);
+        targetingSummary = targeting.summary || '';
+        currentState.couponTargetingSummary = targetingSummary;
+
+        // Log AI reasoning
+        addAiLog(`${getFormattedTime()} LLM Coupon Targeting (model: ${targeting.modelUsed || 'unknown'})`);
+        addAiLog(`${getFormattedTime()} Targeting Summary: "${targetingSummary}"`);
+        for (const sel of targeting.selected) {
+          addAiLog(`${getFormattedTime()} → ${sel.userId}: "${sel.reason}"`);
+        }
+      }
+    }
+  } catch (err) {
+    // LLM unavailable — fall back to selecting all candidates
+    console.warn('LLM coupon targeting unavailable, using deterministic fallback:', err);
+  }
+
+  // Fallback: if LLM didn't return selections, select all candidates deterministically
+  if (selectedUserIds.length === 0) {
+    selectedUserIds = candidates.map((c) => c.userId);
+    targetingSummary = 'Deterministic fallback: all eligible high-intent candidates selected.';
+    currentState.couponTargetingSummary = targetingSummary;
+    addLog(
+      `${getFormattedTime()} ⚠️ LLM targeting unavailable. 🔄 RECOVERY: Deterministic bounded fallback activated — candidate pool selected safely.`
+    );
+    addAiLog(
+      `${getFormattedTime()} Failure Recovery: LLM targeting unavailable. Gracefully switched to bounded deterministic rule.`
+    );
+  }
+
   const nudgedCandidates: string[] = [];
 
-  // 1. Nudge Phone A
-  if (!currentState.phoneStates.phoneA.ordered && !currentState.phoneStates.phoneA.couponReceived) {
+  // Apply nudges based on targeting selection
+  if (selectedUserIds.includes('phoneA') && !currentState.phoneStates.phoneA.ordered && !currentState.phoneStates.phoneA.couponReceived) {
     currentState.phoneStates.phoneA.couponReceived = true;
     currentState.phoneStates.phoneA.couponDetails = {
       discountPct: discountPctInt,
@@ -323,8 +440,7 @@ export function checkThresholdAndTriggerCoupon(force: boolean = false) {
     nudgedCandidates.push('Phone A (Buyer #1)');
   }
 
-  // 2. Nudge Phone B
-  if (!currentState.phoneStates.phoneB.ordered && !currentState.phoneStates.phoneB.couponReceived) {
+  if (selectedUserIds.includes('phoneB') && !currentState.phoneStates.phoneB.ordered && !currentState.phoneStates.phoneB.couponReceived) {
     currentState.phoneStates.phoneB.couponReceived = true;
     currentState.phoneStates.phoneB.couponDetails = {
       discountPct: discountPctInt,
@@ -334,8 +450,7 @@ export function checkThresholdAndTriggerCoupon(force: boolean = false) {
     nudgedCandidates.push('Phone B (Buyer #2)');
   }
 
-  // 3. Nudge Phone D
-  if (!currentState.phoneStates.phoneD.ordered && !currentState.phoneStates.phoneD.couponReceived) {
+  if (selectedUserIds.includes('phoneD') && !currentState.phoneStates.phoneD.ordered && !currentState.phoneStates.phoneD.couponReceived) {
     currentState.phoneStates.phoneD.isWatching = true;
     currentState.phoneStates.phoneD.couponReceived = true;
     currentState.phoneStates.phoneD.couponDetails = {
@@ -361,6 +476,13 @@ export function checkThresholdAndTriggerCoupon(force: boolean = false) {
   }
 }
 
+// Helper to get base URL for internal API calls
+function getBaseUrl(): string {
+  if (typeof window !== 'undefined') return '';
+  const port = process.env.PORT || '3000';
+  return `http://localhost:${port}`;
+}
+
 export async function addSimulatedOrders(count: number) {
   for (let i = 0; i < count; i++) {
     if (currentState.windowClosed) break;
@@ -381,15 +503,33 @@ export async function closeWindowEngine() {
   addLog(`${getFormattedTime()} Window closed. Final aggregation volume: ${finalCount}/${currentState.targetQty} orders`);
 
   const tierDiscount = getTierDiscount(finalCount, currentState.discountTiers);
+  const hitMaxTier = finalCount >= currentState.targetQty;
+  const hasAnyDiscount = tierDiscount > 0;
 
-  if (finalCount >= currentState.minQtyForDiscount && tierDiscount > 0) {
-    // --- SUCCESS DISCOUNT PATH ---
+  if (finalCount > 0 && hasAnyDiscount) {
+    // --- DISCOUNT PATH (Full Threshold OR Dynamic Partial Recovery) ---
     const discountPctInt = Math.round(tierDiscount * 100);
     const finalCapturedUnitPrice = Math.round(product.retailPrice * (1 - tierDiscount));
 
-    addLog(
-      `${getFormattedTime()} Wholesale threshold unlocked: ${discountPctInt}% volume discount (Settlement Unit Price: ₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`
-    );
+    if (hitMaxTier) {
+      // Full threshold achieved
+      addLog(
+        `${getFormattedTime()} ✅ Wholesale threshold FULLY MET: ${discountPctInt}% volume discount (Settlement Unit Price: ₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`
+      );
+    } else {
+      // --- GRACEFUL RECOVERY: Partial threshold → dynamic discount ---
+      const maxTierPct = Math.round(Math.max(...Object.values(currentState.discountTiers)) * 100);
+      addLog(
+        `${getFormattedTime()} ⚠️ Full wholesale threshold not reached (${finalCount}/${currentState.targetQty} units — target was ${maxTierPct}% OFF).`
+      );
+      addLog(
+        `${getFormattedTime()} 🔄 RECOVERY: Dynamic Discount Activated — best available tier applied: ${discountPctInt}% OFF at ₹${finalCapturedUnitPrice.toLocaleString('en-IN')}/unit. No buyer left at full retail.`
+      );
+      addAiLog(
+        `${getFormattedTime()} Failure Recovery: Target ${currentState.targetQty} units not met (actual: ${finalCount}). Agent activated dynamic discount fallback → ${discountPctInt}% tier applied. Zero buyer disappointment.`
+      );
+    }
+
     addLog(`${getFormattedTime()} Executing Razorpay escrow capture & automated refunds...`);
 
     for (const order of currentState.orders) {
@@ -423,7 +563,7 @@ export async function closeWindowEngine() {
 
     const totalPayout = finalCount * finalCapturedUnitPrice;
     addLog(
-      `${getFormattedTime()} Bulk wholesale purchase finalized: ${finalCount} units @ ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (Seller Total Payout: ₹${totalPayout.toLocaleString('en-IN')})`
+      `${getFormattedTime()} ${hitMaxTier ? 'Bulk wholesale' : 'Dynamic discount'} purchase finalized: ${finalCount} units @ ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (Seller Total Payout: ₹${totalPayout.toLocaleString('en-IN')})`
     );
 
     // Dynamic update for Phone D details if ordered
@@ -433,13 +573,17 @@ export async function closeWindowEngine() {
     }
 
     const refundDiff = product.retailPrice - finalCapturedUnitPrice;
-    const refundMsg = `Group discount of ${discountPctInt}% achieved! ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`;
+    const refundMsg = hitMaxTier
+      ? `Group discount of ${discountPctInt}% achieved! ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`
+      : `Dynamic recovery: ${discountPctInt}% group discount applied (target not fully met). ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`;
 
     if (currentState.phoneStates.phoneA.ordered) currentState.phoneStates.phoneA.notification = refundMsg;
     if (currentState.phoneStates.phoneB.ordered) currentState.phoneStates.phoneB.notification = refundMsg;
     if (currentState.phoneStates.phoneC.ordered) currentState.phoneStates.phoneC.notification = refundMsg;
     if (currentState.phoneStates.phoneD.ordered) {
-      currentState.phoneStates.phoneD.notification = `Standing order executed! Group tier locked at ${discountPctInt}% off (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`;
+      currentState.phoneStates.phoneD.notification = hitMaxTier
+        ? `Standing order executed! Group tier locked at ${discountPctInt}% off (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`
+        : `Standing order executed! Dynamic recovery tier: ${discountPctInt}% off (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`;
     }
 
     currentState.sellerState = {
@@ -448,15 +592,21 @@ export async function closeWindowEngine() {
       totalUnits: finalCount,
       unitPrice: finalCapturedUnitPrice,
       totalPayout,
-      tierApplied: `${discountPctInt}% Off (Tier ${finalCount})`,
+      tierApplied: hitMaxTier
+        ? `${discountPctInt}% Off (Full Threshold)`
+        : `${discountPctInt}% Off (Dynamic Recovery — ${finalCount}/${currentState.targetQty} units)`,
     };
-  } else {
-    // --- FALLBACK FULL RETAIL PATH ---
+  } else if (finalCount > 0) {
+    // --- MINIMUM VOLUME: Below any discount tier, but orders exist ---
+    // Still fulfill orders — no buyer is abandoned
     addLog(
-      `${getFormattedTime()} Minimum threshold not met (${finalCount}/${currentState.minQtyForDiscount} required for group discount).`
+      `${getFormattedTime()} ⚠️ Volume below minimum discount tier (${finalCount}/${currentState.minQtyForDiscount} required for any discount).`
     );
     addLog(
-      `${getFormattedTime()} Retail fallback initiated: capturing orders at standard retail price. No refunds issued.`
+      `${getFormattedTime()} 🔄 RECOVERY: All buyer orders preserved and fulfilled at retail price. No orders cancelled.`
+    );
+    addAiLog(
+      `${getFormattedTime()} Failure Recovery: ${finalCount} orders below min discount threshold (${currentState.minQtyForDiscount}). All orders preserved at retail — zero buyer abandonment.`
     );
 
     for (const order of currentState.orders) {
@@ -466,20 +616,20 @@ export async function closeWindowEngine() {
       order.status = 'captured';
 
       addLog(
-        `${getFormattedTime()} Escrow Capture: ${order.buyerName} -> ₹${order.retailPrice.toLocaleString('en-IN')} (standard retail capture)`
+        `${getFormattedTime()} Escrow Capture: ${order.buyerName} -> ₹${order.retailPrice.toLocaleString('en-IN')} (retail — order preserved)`
       );
     }
 
     const totalPayout = finalCount * product.retailPrice;
     addLog(
-      `${getFormattedTime()} Standard order dispatched: ${finalCount} units @ ₹${product.retailPrice.toLocaleString('en-IN')} (Seller Total: ₹${totalPayout.toLocaleString('en-IN')})`
+      `${getFormattedTime()} Orders fulfilled: ${finalCount} units @ ₹${product.retailPrice.toLocaleString('en-IN')} (Seller Total: ₹${totalPayout.toLocaleString('en-IN')})`
     );
 
-    const fallbackMsg = `Order fulfilled at standard retail price ₹${product.retailPrice.toLocaleString('en-IN')} (Group volume threshold not reached).`;
-    if (currentState.phoneStates.phoneA.ordered) currentState.phoneStates.phoneA.notification = fallbackMsg;
-    if (currentState.phoneStates.phoneB.ordered) currentState.phoneStates.phoneB.notification = fallbackMsg;
-    if (currentState.phoneStates.phoneC.ordered) currentState.phoneStates.phoneC.notification = fallbackMsg;
-    if (currentState.phoneStates.phoneD.ordered) currentState.phoneStates.phoneD.notification = fallbackMsg;
+    const recoveryMsg = `Your order is confirmed at ₹${product.retailPrice.toLocaleString('en-IN')}. Group volume was below discount threshold — your order was preserved (not cancelled).`;
+    if (currentState.phoneStates.phoneA.ordered) currentState.phoneStates.phoneA.notification = recoveryMsg;
+    if (currentState.phoneStates.phoneB.ordered) currentState.phoneStates.phoneB.notification = recoveryMsg;
+    if (currentState.phoneStates.phoneC.ordered) currentState.phoneStates.phoneC.notification = recoveryMsg;
+    if (currentState.phoneStates.phoneD.ordered) currentState.phoneStates.phoneD.notification = recoveryMsg;
 
     currentState.sellerState = {
       totalOrdersReceived: finalCount,
@@ -487,7 +637,14 @@ export async function closeWindowEngine() {
       totalUnits: finalCount,
       unitPrice: product.retailPrice,
       totalPayout,
-      tierApplied: '0% Off (Retail Fallback)',
+      tierApplied: `0% Off (Below Min Tier — Orders Preserved)`,
+    };
+  } else {
+    // No orders at all
+    addLog(`${getFormattedTime()} Window closed with zero orders. No settlement required.`);
+    currentState.sellerState = {
+      totalOrdersReceived: 0,
+      settlementStatus: 'completed',
     };
   }
 
@@ -504,6 +661,9 @@ export function resetState() {
   currentState.logs = [
     `${getFormattedTime()} System reset complete. Ready for new demand aggregation cycle (${currentProduct.name}).`,
   ];
+  currentState.aiReasoningLog = [];
+  currentState.lastParseResult = null;
+  currentState.couponTargetingSummary = null;
   return currentState;
 }
 

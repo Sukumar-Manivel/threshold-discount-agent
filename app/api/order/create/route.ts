@@ -10,10 +10,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'buyerId and buyerName are required' }, { status: 400 });
     }
 
+    const currentState = getState();
+    const defaultPrice = currentState.activeProduct.retailPrice;
+
     const order = await authorizeBuyerOrder(
       buyerId,
       buyerName,
-      authorizedPrice || 79900,
+      authorizedPrice || defaultPrice,
       isDiscountedOnAuth || false
     );
 

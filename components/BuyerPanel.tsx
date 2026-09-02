@@ -12,8 +12,11 @@ import {
   Wifi,
   Battery,
   Flame,
+  Loader2,
+  Brain,
 } from 'lucide-react';
 import { AppState } from '@/lib/store';
+import { PRODUCT_CATALOG } from '@/lib/constants';
 
 interface BuyerPanelProps {
   state: AppState;
@@ -34,8 +37,58 @@ export default function BuyerPanel({
   // Local UI states for Phone C and Phone D inputs
   const [phoneCPrompt, setPhoneCPrompt] = useState(`buy ${product.name}`);
   const [phoneDPrompt, setPhoneDPrompt] = useState('buy this for me only if the price drops, ask before you pay');
+  const [phoneCParsing, setPhoneCParsing] = useState(false);
+  const [phoneCParseResult, setPhoneCParseResult] = useState<{
+    matchedSkuId: string | null;
+    maxPrice: number | null;
+    confidence: number;
+    reasoning: string;
+    modelUsed: string;
+  } | null>(state.lastParseResult || null);
 
   const formatPrice = (val: number) => `₹${val.toLocaleString('en-IN')}`;
+
+  const handleParseWithAI = async () => {
+    setPhoneCParsing(true);
+    setPhoneCParseResult(null);
+    try {
+      const res = await fetch('/api/parse-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: phoneCPrompt,
+          availableSkus: PRODUCT_CATALOG.map((p) => ({
+            id: p.id,
+            name: p.name,
+            retailPrice: p.retailPrice,
+            category: p.category,
+          })),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPhoneCParseResult(data);
+      } else {
+        setPhoneCParseResult({
+          matchedSkuId: null,
+          maxPrice: null,
+          confidence: 0,
+          reasoning: 'LLM request failed — OpenRouter key may not be set. Falling back to direct match.',
+          modelUsed: 'fallback',
+        });
+      }
+    } catch (err) {
+      setPhoneCParseResult({
+        matchedSkuId: null,
+        maxPrice: null,
+        confidence: 0,
+        reasoning: 'Network error — falling back to direct match.',
+        modelUsed: 'fallback',
+      });
+    } finally {
+      setPhoneCParsing(false);
+    }
+  };
 
   return (
     <div className="bg-[#0E1420] border border-[#1E293B] rounded-xl p-3.5 flex flex-col h-full shadow-lg">
@@ -302,10 +355,65 @@ export default function BuyerPanel({
                     type="text"
                     value={phoneCPrompt}
                     onChange={(e) => setPhoneCPrompt(e.target.value)}
-                    className="w-full bg-[#090D16] border border-[#1E293B] rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500"
+                    className="w-full bg-[#090D16] border border-[#1E293B] rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500 mb-1.5"
                   />
+                  <button
+                    onClick={handleParseWithAI}
+                    disabled={phoneCParsing || windowClosed}
+                    className="w-full py-1.5 bg-violet-700 hover:bg-violet-600 disabled:opacity-40 text-white font-semibold text-[10px] rounded-lg flex items-center justify-center gap-1.5 transition"
+                  >
+                    {phoneCParsing ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Parsing with LLM...
+                      </>
+                    ) : (
+                      <>
+                        <Brain className="w-3 h-3" />
+                        Parse with AI (OpenRouter)
+                      </>
+                    )}
+                  </button>
                 </div>
 
+                {/* LLM AI Reasoning Output */}
+                {phoneCParseResult && (
+                  <div className="bg-violet-950/30 border border-violet-700/60 p-2.5 rounded-xl space-y-1.5 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-violet-300">
+                        <Brain className="w-3 h-3 text-violet-400" /> LLM Intent Parse
+                      </div>
+                      <span className="text-[9px] bg-violet-900/60 text-violet-200 px-1.5 py-0.5 rounded font-mono border border-violet-700/50">
+                        {phoneCParseResult.modelUsed?.split('/').pop() || 'model'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="text-slate-400">Confidence:</span>
+                      <div className="flex-1 bg-[#090D16] h-1.5 rounded-full overflow-hidden border border-[#1E293B]">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            phoneCParseResult.confidence >= 0.8 ? 'bg-emerald-500' :
+                            phoneCParseResult.confidence >= 0.5 ? 'bg-amber-500' : 'bg-rose-500'
+                          }`}
+                          style={{ width: `${Math.round(phoneCParseResult.confidence * 100)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono font-bold text-slate-200">
+                        {(phoneCParseResult.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-300 leading-tight italic">
+                      "{phoneCParseResult.reasoning}"
+                    </p>
+                    {phoneCParseResult.matchedSkuId && (
+                      <div className="text-[10px] text-violet-200 font-medium">
+                        Matched: {PRODUCT_CATALOG.find(p => p.id === phoneCParseResult.matchedSkuId)?.name || phoneCParseResult.matchedSkuId}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Recommendation Card (shows after parse or as default) */}
                 <div className="bg-[#151E2E] border border-[#1E293B] p-2.5 rounded-xl space-y-1">
                   <div className="flex items-center gap-1 text-[11px] font-semibold text-sky-300">
                     <Sparkles className="w-3 h-3 text-sky-400" /> AI Recommendation

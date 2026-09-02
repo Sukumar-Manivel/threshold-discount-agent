@@ -10,6 +10,7 @@ import {
   Filter,
   Layers,
   ArrowUpRight,
+  Brain,
 } from 'lucide-react';
 import { AppState } from '@/lib/store';
 import {
@@ -25,7 +26,7 @@ interface AgentStackPanelProps {
 export default function AgentStackPanel({ state }: AgentStackPanelProps) {
   const { orders, secondsRemaining, logs, windowStarted, windowClosed, activeProduct, targetQty, discountTiers } = state;
   const logContainerRef = useRef<HTMLDivElement>(null);
-  const [filterType, setFilterType] = useState<'all' | 'escrow' | 'nudge' | 'settle'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'escrow' | 'nudge' | 'settle' | 'ai'>('all');
 
   // Auto-scroll audit log to bottom whenever logs update
   useEffect(() => {
@@ -48,8 +49,11 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
     if (filterType === 'escrow') return log.includes('AUTHORIZED') || log.includes('Escrow') || log.includes('Capture');
     if (filterType === 'nudge') return log.includes('Nudge') || log.includes('Coupon') || log.includes('Threshold');
     if (filterType === 'settle') return log.includes('Settlement') || log.includes('Wholesale') || log.includes('refund') || log.includes('closed');
+    if (filterType === 'ai') return log.includes('🤖') || log.includes('LLM');
     return true;
   });
+
+  const aiLogCount = logs.filter((log) => log.includes('🤖')).length;
 
   return (
     <div className="bg-[#0E1420] border border-[#1E293B] rounded-xl p-3.5 flex flex-col h-full shadow-lg space-y-3.5">
@@ -198,6 +202,12 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
             >
               Settlement
             </button>
+            <button
+              onClick={() => setFilterType('ai')}
+              className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${filterType === 'ai' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              <Brain className="w-2.5 h-2.5" /> AI{aiLogCount > 0 ? ` (${aiLogCount})` : ''}
+            </button>
           </div>
         </div>
 
@@ -207,12 +217,14 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
         >
           {filteredLogs.map((log, idx) => {
             let badgeStyle = 'text-slate-300';
-            if (log.includes('Nudge') || log.includes('Coupon')) badgeStyle = 'text-amber-300';
+            if (log.includes('🤖') || log.includes('LLM')) badgeStyle = 'text-violet-300';
+            else if (log.includes('Nudge') || log.includes('Coupon')) badgeStyle = 'text-amber-300';
             else if (log.includes('AUTHORIZED')) badgeStyle = 'text-blue-300';
             else if (log.includes('Escrow Capture') || log.includes('refund')) badgeStyle = 'text-emerald-300';
             else if (log.includes('fallback') || log.includes('Fallback')) badgeStyle = 'text-rose-300';
             else if (log.includes('Bulk wholesale') || log.includes('Wholesale')) badgeStyle = 'text-sky-300 font-semibold';
             else if (log.includes('Window closed')) badgeStyle = 'text-yellow-300 font-semibold';
+            else if (log.includes('Seller Configuration')) badgeStyle = 'text-emerald-300 font-semibold';
 
             return (
               <div key={idx} className={`${badgeStyle} flex items-start gap-1`}>

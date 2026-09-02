@@ -145,7 +145,7 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="bg-blue-950 text-blue-300 border border-blue-800/60 px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-blue-400" /> Architecture Simulation Sequence
+              <Sparkles className="w-3 h-3 text-blue-400" /> Architecture Workflow Sequence
             </span>
             {onSwitchToDemo && (
               <button

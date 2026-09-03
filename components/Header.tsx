@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ShoppingBag,
   ExternalLink,
+  HelpCircle,
 } from 'lucide-react';
 import { AppState } from '@/lib/store';
 import { PRODUCT_CATALOG } from '@/lib/constants';
@@ -26,6 +27,7 @@ interface HeaderProps {
   onSwitchProduct?: (productId: string) => void;
   viewMode?: 'demo' | 'architecture';
   onToggleViewMode?: (mode: 'demo' | 'architecture') => void;
+  onOpenOnboarding?: () => void;
 }
 
 export default function Header({
@@ -37,6 +39,7 @@ export default function Header({
   onSwitchProduct,
   viewMode = 'demo',
   onToggleViewMode,
+  onOpenOnboarding,
 }: HeaderProps) {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [keyId, setKeyId] = useState(state.razorpayKeys?.keyId || '');
@@ -165,6 +168,16 @@ export default function Header({
             title="Fast forward timer to trigger settlement immediately"
           >
             <FastForward className="w-3.5 h-3.5 text-amber-400" /> Fast-Forward Timer
+          </button>
+
+          {/* Onboarding Guide "?" Button */}
+          <button
+            onClick={onOpenOnboarding}
+            className="px-2.5 py-1.5 bg-[#151E2E] hover:bg-[#1A253A] text-slate-300 hover:text-white text-xs font-medium rounded-lg border border-[#1E293B] flex items-center gap-1.5 transition"
+            title="What you're about to see (15s Quick Orientation)"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-blue-400" />
+            <span>Guide</span>
           </button>
 
           {/* Key Config */}

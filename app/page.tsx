@@ -7,6 +7,7 @@ import AgentStackPanel from '@/components/AgentStackPanel';
 import SellerDashboard from '@/components/SellerDashboard';
 import RazorpayModal from '@/components/RazorpayModal';
 import FlowDiagramPage from '@/components/FlowDiagramPage';
+import OnboardingModal from '@/components/OnboardingModal';
 import { AppState } from '@/lib/store';
 
 export default function Home() {
@@ -21,6 +22,18 @@ export default function Home() {
     amount?: number;
     isDiscounted?: boolean;
   }>({ isOpen: false });
+
+  // Onboarding orientation modal state (auto-opens on first load)
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    try {
+      const hasSeen = localStorage.getItem('seen_onboarding_v1');
+      if (!hasSeen) {
+        setShowOnboarding(true);
+      }
+    } catch {}
+  }, []);
 
   // Poll state every 500ms for smooth real-time updates across panels
   const fetchState = useCallback(async () => {
@@ -210,6 +223,7 @@ export default function Home() {
         onSwitchProduct={handleSwitchProduct}
         viewMode={viewMode}
         onToggleViewMode={setViewMode}
+        onOpenOnboarding={() => setShowOnboarding(true)}
       />
 
       {/* Main Content Area */}
@@ -250,6 +264,12 @@ export default function Home() {
         buyerName={modalState.buyerName || 'Buyer'}
         skuName={state.activeProduct.name}
         isDiscounted={modalState.isDiscounted}
+      />
+
+      {/* Onboarding Orientation Modal */}
+      <OnboardingModal
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
       />
     </div>
   );

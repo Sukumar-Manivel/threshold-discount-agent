@@ -55,6 +55,77 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
 
   const aiLogCount = logs.filter((log) => log.includes('🤖')).length;
 
+  // --------------------------------------------------------------------------
+  // LIVE "STAGE X OF 5" STATE MACHINE SYNCHRONIZATION
+  // 100% driven by real AppState ledger — zero animation drift
+  // --------------------------------------------------------------------------
+  const getLiveStageInfo = () => {
+    // Stage 5: Settlement executed
+    if (windowClosed) {
+      return {
+        stage: 5,
+        title: 'Stage 5 of 5 — Automated Escrow Capture & Equalization',
+        description: 'Wholesale tier captured. Equalized refunds disbursed to buyers.',
+        badgeColor: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
+      };
+    }
+
+    // Stage 4: Window close / threshold target reached
+    if (currentCount >= targetQty || secondsRemaining === 0) {
+      return {
+        stage: 4,
+        title: 'Stage 4 of 5 — Aggregation Window Close & Wholesale Settlement',
+        description: 'Volume threshold unlocked or timer expired. Commencing clearing.',
+        badgeColor: 'bg-indigo-950/70 text-indigo-300 border-indigo-700/60',
+      };
+    }
+
+    // Stage 3: Targeted Nudge active (Phone D or any user nudged / AI evaluated)
+    const hasNudgeOccurred =
+      state.phoneStates.phoneD.couponReceived ||
+      state.phoneStates.phoneA.couponReceived ||
+      state.phoneStates.phoneB.couponReceived ||
+      logs.some((l) => l.includes('Nudge') || l.includes('Coupon') || l.includes('🤖'));
+
+    if (hasNudgeOccurred) {
+      return {
+        stage: 3,
+        title: 'Stage 3 of 5 — Targeted Nudge to High-Intent Searchers',
+        description: 'LLM evaluated candidate pool and dispatched targeted flash coupon.',
+        badgeColor: 'bg-amber-950/70 text-amber-300 border-amber-700/60',
+      };
+    }
+
+    // Stage 2: 2 or more orders locked, analytics evaluating marginal economics
+    if (currentCount >= 2) {
+      return {
+        stage: 2,
+        title: 'Stage 2 of 5 — Decision Engine Demand Analytics',
+        description: `Analyzing volume gap: ${currentCount}/${targetQty} orders locked in Escrow.`,
+        badgeColor: 'bg-blue-950/70 text-blue-300 border-blue-700/60',
+      };
+    }
+
+    // Stage 1: Initial orders / Escrow hold
+    return {
+      stage: 1,
+      title: 'Stage 1 of 5 — Escrow Stocking & Independent Orders',
+      description: currentCount === 0
+        ? 'Awaiting first atomic buyer order. Payments will be held in Escrow.'
+        : 'First order pre-authorized in Escrow. Aggregation window active.',
+      badgeColor: 'bg-slate-800/70 text-slate-300 border-slate-700/60',
+    };
+  };
+
+  const stageInfo = getLiveStageInfo();
+  const STAGES = [
+    { num: 1, label: 'Stocking' },
+    { num: 2, label: 'Analytics' },
+    { num: 3, label: 'Nudge' },
+    { num: 4, label: 'Close' },
+    { num: 5, label: 'Settlement' },
+  ];
+
   return (
     <div className="bg-[#0E1420] border border-[#1E293B] rounded-xl p-3.5 flex flex-col h-full shadow-lg space-y-3.5">
       {/* Panel Header */}
@@ -70,6 +141,54 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
         <span className="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded font-mono font-medium border border-blue-800/60">
           Escrow Engine: Active
         </span>
+      </div>
+
+      {/* Live "Stage X of 5" State Stepper */}
+      <div className="bg-[#151E2E] border border-[#1E293B] rounded-xl p-2.5 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+            <span className="text-[11px] font-bold text-slate-200 truncate">
+              {stageInfo.title}
+            </span>
+          </div>
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border shrink-0 ${stageInfo.badgeColor}`}>
+            Phase {stageInfo.stage}/5
+          </span>
+        </div>
+
+        {/* Stepper Bar */}
+        <div className="grid grid-cols-5 gap-1 pt-0.5">
+          {STAGES.map((s) => {
+            const isCompleted = s.num < stageInfo.stage;
+            const isCurrent = s.num === stageInfo.stage;
+
+            return (
+              <div
+                key={s.num}
+                className={`flex items-center justify-center gap-1 py-1 px-1 rounded-lg text-[10px] font-medium transition-all ${
+                  isCurrent
+                    ? 'bg-blue-600/30 text-blue-200 border border-blue-500/60 shadow-sm shadow-blue-500/20 font-bold ring-1 ring-blue-500/40'
+                    : isCompleted
+                    ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-800/50'
+                    : 'bg-[#0E1420] text-slate-500 border border-[#1E293B]/60'
+                }`}
+              >
+                {isCompleted ? (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                ) : (
+                  <span className="font-mono text-[9px] opacity-80 shrink-0">#{s.num}</span>
+                )}
+                <span className="truncate">{s.label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Live Subtext Description */}
+        <p className="text-[10px] text-slate-400 leading-tight">
+          {stageInfo.description}
+        </p>
       </div>
 
       {/* Top Metrics Row */}

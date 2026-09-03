@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Smartphone,
   Search,
@@ -14,6 +14,8 @@ import {
   Flame,
   Loader2,
   Brain,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { AppState } from '@/lib/store';
 import { PRODUCT_CATALOG } from '@/lib/constants';
@@ -47,6 +49,29 @@ export default function BuyerPanel({
   } | null>(state.lastParseResult || null);
 
   const formatPrice = (val: number) => `₹${val.toLocaleString('en-IN')}`;
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [selectedPhone, setSelectedPhone] = useState<'A' | 'B' | 'C' | 'D'>('A');
+
+  const scrollToPhone = (key: 'A' | 'B' | 'C' | 'D') => {
+    setSelectedPhone(key);
+    const el = document.getElementById(`phone-viewport-${key}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+    }
+  };
+
+  const handleScrollPrev = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -280, behavior: 'smooth' });
+    }
+  };
+
+  const handleScrollNext = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 280, behavior: 'smooth' });
+    }
+  };
 
   const handleParseWithAI = async () => {
     setPhoneCParsing(true);
@@ -105,13 +130,81 @@ export default function BuyerPanel({
         </span>
       </div>
 
+      {/* Phone Quick-Switch Navigation Bar */}
+      <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-[#1E293B]/70 mb-2">
+        <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar py-0.5">
+          <button
+            type="button"
+            onClick={() => scrollToPhone('A')}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition whitespace-nowrap ${
+              selectedPhone === 'A'
+                ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50'
+                : 'bg-[#151E2E] text-slate-400 border border-[#1E293B] hover:text-slate-200'
+            }`}
+          >
+            📱 Phone A
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToPhone('B')}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition whitespace-nowrap ${
+              selectedPhone === 'B'
+                ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50'
+                : 'bg-[#151E2E] text-slate-400 border border-[#1E293B] hover:text-slate-200'
+            }`}
+          >
+            📱 Phone B
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToPhone('C')}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition whitespace-nowrap ${
+              selectedPhone === 'C'
+                ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50'
+                : 'bg-[#151E2E] text-slate-400 border border-[#1E293B] hover:text-slate-200'
+            }`}
+          >
+            🧠 Phone C (AI)
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToPhone('D')}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition whitespace-nowrap ${
+              selectedPhone === 'D'
+                ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
+                : 'bg-[#151E2E] text-slate-400 border border-[#1E293B] hover:text-slate-200'
+            }`}
+          >
+            🤖 Phone D (Auto)
+          </button>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={handleScrollPrev}
+            className="p-1 bg-[#151E2E] hover:bg-[#1E293B] border border-[#1E293B] rounded text-slate-400 hover:text-slate-200 transition"
+            title="Scroll left"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={handleScrollNext}
+            className="p-1 bg-[#151E2E] hover:bg-[#1E293B] border border-[#1E293B] rounded text-slate-400 hover:text-slate-200 transition"
+            title="Scroll right"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
       {/* Horizontal Scroll of Phone Viewports */}
-      <div className="flex-1 overflow-x-auto pb-2 custom-scrollbar">
-        <div className="flex gap-3.5 min-w-max">
+      <div ref={scrollContainerRef} className="flex-1 overflow-x-auto pb-2 px-1 scroll-smooth snap-x snap-mandatory custom-scrollbar">
+        <div className="flex gap-3.5 min-w-max pb-1">
           {/* ======================================================== */}
           {/* PHONE A: Manual Buyer #1 */}
           {/* ======================================================== */}
-          <div className="w-[260px] bg-[#090D16] border-2 border-[#1E293B] rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
+          <div id="phone-viewport-A" className="w-[260px] snap-start shrink-0 bg-[#090D16] border-2 border-[#1E293B] rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
             {/* iOS Status Bar */}
             <div className="flex justify-between items-center px-3 pt-1 pb-2 text-[10px] text-slate-400 font-medium">
               <span>9:41</span>
@@ -224,7 +317,7 @@ export default function BuyerPanel({
           {/* ======================================================== */}
           {/* PHONE B: Manual Buyer #2 */}
           {/* ======================================================== */}
-          <div className="w-[260px] bg-[#090D16] border-2 border-[#1E293B] rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
+          <div id="phone-viewport-B" className="w-[260px] snap-start shrink-0 bg-[#090D16] border-2 border-[#1E293B] rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
             <div className="flex justify-between items-center px-3 pt-1 pb-2 text-[10px] text-slate-400 font-medium">
               <span>9:41</span>
               <div className="w-14 h-3 bg-[#151E2E] rounded-full mx-auto" />
@@ -330,7 +423,7 @@ export default function BuyerPanel({
           {/* ======================================================== */}
           {/* PHONE C: Prompt Agent (Immediate) */}
           {/* ======================================================== */}
-          <div className="w-[260px] bg-[#090D16] border-2 border-[#1E293B] rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
+          <div id="phone-viewport-C" className="w-[260px] snap-start shrink-0 bg-[#090D16] border-2 border-[#1E293B] rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
             <div className="flex justify-between items-center px-3 pt-1 pb-2 text-[10px] text-slate-400 font-medium">
               <span>9:41</span>
               <div className="w-14 h-3 bg-[#151E2E] rounded-full mx-auto" />
@@ -460,7 +553,7 @@ export default function BuyerPanel({
           {/* ======================================================== */}
           {/* PHONE D: Standing-Order Agent (Waits for Price Drop) */}
           {/* ======================================================== */}
-          <div className="w-[260px] bg-[#090D16] border-2 border-amber-900/60 rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
+          <div id="phone-viewport-D" className="w-[260px] snap-start shrink-0 bg-[#090D16] border-2 border-amber-900/60 rounded-[30px] p-2.5 flex flex-col shadow-xl relative">
             <div className="flex justify-between items-center px-3 pt-1 pb-2 text-[10px] text-slate-400 font-medium">
               <span>9:41</span>
               <div className="w-14 h-3 bg-[#151E2E] rounded-full mx-auto" />

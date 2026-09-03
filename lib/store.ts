@@ -13,6 +13,7 @@ import {
   createRazorpayOrder,
   refundRazorpayPayment,
 } from './razorpay';
+import { executeCouponTargeting } from './targeting';
 
 export interface OrderItem {
   id: string;
@@ -376,54 +377,48 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
 
   if (candidates.length === 0) return;
 
-  // Try LLM-powered coupon targeting; fall back to deterministic logic if LLM unavailable
+  // Execute coupon targeting via LLM with deterministic bounding and fallback
   let selectedUserIds: string[] = [];
   let targetingSummary = '';
 
   try {
-    const targetingRes = await fetch(`${getBaseUrl()}/api/coupon-targeting`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        productId: currentState.activeProduct.id,
-        productName: currentState.activeProduct.name,
-        gap,
-        maxNudges: 3,
-        maxCouponValue: discountPctInt,
-        candidates,
-      }),
+    const targeting = await executeCouponTargeting({
+      productId: currentState.activeProduct.id,
+      productName: currentState.activeProduct.name,
+      gap,
+      maxNudges: 3,
+      maxCouponValue: discountPctInt,
+      candidates,
     });
 
-    if (targetingRes.ok) {
-      const targeting = await targetingRes.json();
-      if (targeting.selected && Array.isArray(targeting.selected)) {
-        selectedUserIds = targeting.selected.map((s: { userId: string }) => s.userId);
-        targetingSummary = targeting.summary || '';
-        currentState.couponTargetingSummary = targetingSummary;
+    selectedUserIds = targeting.selected.map((s) => s.userId);
+    targetingSummary = targeting.summary || '';
+    currentState.couponTargetingSummary = targetingSummary;
 
-        // Log AI reasoning
-        addAiLog(`${getFormattedTime()} LLM Coupon Targeting (model: ${targeting.modelUsed || 'unknown'})`);
-        addAiLog(`${getFormattedTime()} Targeting Summary: "${targetingSummary}"`);
-        for (const sel of targeting.selected) {
-          addAiLog(`${getFormattedTime()} → ${sel.userId}: "${sel.reason}"`);
-        }
+    if (targeting.isFallback) {
+      addLog(
+        `${getFormattedTime()} ⚠️ LLM targeting fallback active. 🔄 RECOVERY: Deterministic bounded selection engaged.`
+      );
+      addAiLog(
+        `${getFormattedTime()} Failure Recovery: LLM provider unavailable. Gracefully switched to bounded deterministic rule.`
+      );
+    } else {
+      addAiLog(`${getFormattedTime()} 🤖 LLM Coupon Targeting Active (model: ${targeting.modelUsed})`);
+      addAiLog(`${getFormattedTime()} Targeting Summary: "${targetingSummary}"`);
+      for (const sel of targeting.selected) {
+        addAiLog(`${getFormattedTime()} → ${sel.userId}: "${sel.reason}"`);
       }
+      addLog(
+        `${getFormattedTime()} 🤖 AI Nudge: LLM (${targeting.modelUsed}) evaluated candidate pool and issued targeted coupon.`
+      );
     }
   } catch (err) {
-    // LLM unavailable — fall back to selecting all candidates
-    console.warn('LLM coupon targeting unavailable, using deterministic fallback:', err);
-  }
-
-  // Fallback: if LLM didn't return selections, select all candidates deterministically
-  if (selectedUserIds.length === 0) {
+    console.warn('Coupon targeting execution failed, engaging fallback:', err);
     selectedUserIds = candidates.map((c) => c.userId);
     targetingSummary = 'Deterministic fallback: all eligible high-intent candidates selected.';
     currentState.couponTargetingSummary = targetingSummary;
     addLog(
-      `${getFormattedTime()} ⚠️ LLM targeting unavailable. 🔄 RECOVERY: Deterministic bounded fallback activated — candidate pool selected safely.`
-    );
-    addAiLog(
-      `${getFormattedTime()} Failure Recovery: LLM targeting unavailable. Gracefully switched to bounded deterministic rule.`
+      `${getFormattedTime()} ⚠️ LLM targeting unavailable. 🔄 RECOVERY: Deterministic bounded fallback activated.`
     );
   }
 
@@ -476,12 +471,6 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
   }
 }
 
-// Helper to get base URL for internal API calls
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined') return '';
-  const port = process.env.PORT || '3000';
-  return `http://localhost:${port}`;
-}
 
 export async function addSimulatedOrders(count: number) {
   for (let i = 0; i < count; i++) {

@@ -344,13 +344,27 @@ export async function authorizeBuyerOrder(
     currentState.phoneStates.phoneD.orderId = newOrder.id;
   }
 
-  // Threshold Check Trigger Logic
-  checkThresholdAndTriggerCoupon();
+  // Threshold Check Trigger Logic — only run while window is active
+  if (!currentState.windowClosed && currentState.secondsRemaining > 0) {
+    checkThresholdAndTriggerCoupon();
+  }
 
   return newOrder;
 }
 
+let isTargetingInProgress = false;
+
 export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
+  // Guard 1: Never trigger targeting if window is closed or timer elapsed
+  if (currentState.windowClosed || currentState.secondsRemaining <= 0) {
+    return;
+  }
+
+  // Guard 2: Debounce concurrent LLM targeting runs
+  if (isTargetingInProgress) {
+    return;
+  }
+
   const currentCount = currentState.orders.length;
 
   if (!force && currentCount < 2) {
@@ -381,6 +395,7 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
   let selectedUserIds: string[] = [];
   let targetingSummary = '';
 
+  isTargetingInProgress = true;
   try {
     const targeting = await executeCouponTargeting({
       productId: currentState.activeProduct.id,
@@ -390,6 +405,11 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
       maxCouponValue: discountPctInt,
       candidates,
     });
+
+    // Guard 3: If window closed while async LLM was thinking, abort immediately!
+    if (currentState.windowClosed || currentState.secondsRemaining <= 0) {
+      return;
+    }
 
     selectedUserIds = targeting.selected.map((s) => s.userId);
     targetingSummary = targeting.summary || '';
@@ -420,6 +440,8 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
     addLog(
       `${getFormattedTime()} ⚠️ LLM targeting unavailable. 🔄 RECOVERY: Deterministic bounded fallback activated.`
     );
+  } finally {
+    isTargetingInProgress = false;
   }
 
   const nudgedCandidates: string[] = [];
@@ -486,6 +508,31 @@ export async function closeWindowEngine() {
 
   currentState.windowClosed = true;
   currentState.secondsRemaining = 0;
+  isTargetingInProgress = false;
+
+  // Clear unredeemed coupons on non-ordering phones so they don't show active discounts post-close
+  if (!currentState.phoneStates.phoneA.ordered) {
+    currentState.phoneStates.phoneA.couponReceived = false;
+    currentState.phoneStates.phoneA.couponDetails = undefined;
+    if (!currentState.phoneStates.phoneA.notification) {
+      currentState.phoneStates.phoneA.notification = 'Window closed — Deal ended.';
+    }
+  }
+  if (!currentState.phoneStates.phoneB.ordered) {
+    currentState.phoneStates.phoneB.couponReceived = false;
+    currentState.phoneStates.phoneB.couponDetails = undefined;
+    if (!currentState.phoneStates.phoneB.notification) {
+      currentState.phoneStates.phoneB.notification = 'Window closed — Deal ended.';
+    }
+  }
+  if (!currentState.phoneStates.phoneD.ordered) {
+    currentState.phoneStates.phoneD.couponReceived = false;
+    currentState.phoneStates.phoneD.couponDetails = undefined;
+    currentState.phoneStates.phoneD.isWatching = false;
+    if (!currentState.phoneStates.phoneD.notification) {
+      currentState.phoneStates.phoneD.notification = 'Window closed — Target price was not reached.';
+    }
+  }
 
   const finalCount = currentState.orders.length;
   const product = currentState.activeProduct;

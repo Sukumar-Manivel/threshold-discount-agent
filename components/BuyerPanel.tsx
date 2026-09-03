@@ -244,7 +244,7 @@ export default function BuyerPanel({
                 </div>
 
                 {/* Targeted Nudge Coupon */}
-                {phoneStates.phoneA.couponReceived && !phoneStates.phoneA.ordered && (
+                {!windowClosed && phoneStates.phoneA.couponReceived && !phoneStates.phoneA.ordered && (
                   <div className="bg-emerald-950/40 border border-emerald-700/60 p-2.5 rounded-xl space-y-1.5 animate-in fade-in">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] bg-emerald-900/60 text-emerald-300 font-bold px-1.5 py-0.5 rounded border border-emerald-700/50 flex items-center gap-1">
@@ -284,6 +284,11 @@ export default function BuyerPanel({
                   <span className="text-[10px] text-slate-400 block mt-0.5">
                     Funds safely reserved
                   </span>
+                </div>
+              ) : windowClosed ? (
+                <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-xl text-center">
+                  <span className="text-xs font-semibold text-slate-400">Deal Closed</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Window ended</span>
                 </div>
               ) : phoneStates.phoneA.couponReceived ? (
                 <button
@@ -352,7 +357,7 @@ export default function BuyerPanel({
                   </div>
                 </div>
 
-                {phoneStates.phoneB.couponReceived && !phoneStates.phoneB.ordered && (
+                {!windowClosed && phoneStates.phoneB.couponReceived && !phoneStates.phoneB.ordered && (
                   <div className="bg-emerald-950/40 border border-emerald-700/60 p-2.5 rounded-xl space-y-1.5 animate-in fade-in">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] bg-emerald-900/60 text-emerald-300 font-bold px-1.5 py-0.5 rounded border border-emerald-700/50 flex items-center gap-1">
@@ -390,6 +395,11 @@ export default function BuyerPanel({
                   <span className="text-[10px] text-slate-400 block mt-0.5">
                     Funds safely reserved
                   </span>
+                </div>
+              ) : windowClosed ? (
+                <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-xl text-center">
+                  <span className="text-xs font-semibold text-slate-400">Deal Closed</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Window ended</span>
                 </div>
               ) : phoneStates.phoneB.couponReceived ? (
                 <button
@@ -536,6 +546,11 @@ export default function BuyerPanel({
                     {formatPrice(product.retailPrice)} Retail Hold
                   </span>
                 </div>
+              ) : windowClosed ? (
+                <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-xl text-center">
+                  <span className="text-xs font-semibold text-slate-400">Deal Closed</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Window ended</span>
+                </div>
               ) : (
                 <button
                   onClick={() =>
@@ -612,7 +627,7 @@ export default function BuyerPanel({
                   </div>
                 )}
 
-                {phoneStates.phoneD.couponReceived && !phoneStates.phoneD.ordered && (
+                {!windowClosed && phoneStates.phoneD.couponReceived && !phoneStates.phoneD.ordered && (
                   <div className="bg-amber-950/40 border border-amber-600/70 p-2.5 rounded-xl space-y-1.5 animate-in fade-in">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] bg-amber-900/60 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-700/50 flex items-center gap-1">
@@ -650,8 +665,13 @@ export default function BuyerPanel({
                     <CheckCircle2 className="w-3.5 h-3.5" /> Standing Order Executed
                   </span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">
-                    Authorized @ {formatPrice(phoneStates.phoneD.couponDetails?.discountedPrice || product.retailPrice)}
+                    Triggered at group discount tier
                   </span>
+                </div>
+              ) : windowClosed ? (
+                <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-xl text-center">
+                  <span className="text-xs font-semibold text-slate-400">Window Closed</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Standing order expired</span>
                 </div>
               ) : phoneStates.phoneD.couponReceived ? (
                 <button

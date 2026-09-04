@@ -593,7 +593,6 @@ export async function closeWindowEngine() {
 
   currentState.windowClosed = true;
   currentState.secondsRemaining = 0;
-  isTargetingInProgress = false;
 
   // Clear unredeemed coupon on Buyer C (deliberate gap)
   if (!currentState.phoneStates.phoneC.ordered) {
@@ -731,7 +730,6 @@ export function resetState() {
   const currentProduct = currentState.activeProduct || DEFAULT_PRODUCT;
   const currentKeys = currentState.razorpayKeys;
 
-  isTargetingInProgress = false;
   inFlightAuthorizations.clear();
   if (pendingPhoneDTimeout) {
     clearTimeout(pendingPhoneDTimeout);

@@ -642,38 +642,39 @@ export async function closeWindowEngine() {
     let totalRefundsIssued = 0;
 
     for (const order of currentState.orders) {
-      if (order.isDiscountedOnAuth) {
-        const finalPrice = Math.max(order.authorizedPrice, finalCapturedUnitPrice);
-        await captureRazorpayPayment(order.paymentId, finalPrice * 100, currentState.razorpayKeys);
-        order.capturedPrice = finalPrice;
-        order.refundAmount = 0;
-        order.status = 'captured';
+      const authPrice = order.authorizedPrice;
+      const refundDiff = Math.max(0, authPrice - finalCapturedUnitPrice);
+      totalRefundsIssued += refundDiff;
 
-        addLog(
-          `${getFormattedTime()} Escrow captured: ${order.buyerName} -> ₹${finalPrice.toLocaleString('en-IN')} (locked at group tier ${discountPctVal}% off)`
-        );
-      } else {
-        const refundDiff = order.retailPrice - finalCapturedUnitPrice;
-        totalRefundsIssued += refundDiff;
+      await captureRazorpayPayment(order.paymentId, finalCapturedUnitPrice * 100, currentState.razorpayKeys);
 
-        await captureRazorpayPayment(order.paymentId, finalCapturedUnitPrice * 100, currentState.razorpayKeys);
-        if (refundDiff > 0) {
-          await refundRazorpayPayment(order.paymentId, refundDiff * 100, currentState.razorpayKeys);
-        }
-
+      if (refundDiff > 0) {
+        await refundRazorpayPayment(order.paymentId, refundDiff * 100, currentState.razorpayKeys);
         order.capturedPrice = finalCapturedUnitPrice;
         order.refundAmount = refundDiff;
         order.status = 'refunded';
 
         addLog(
-          `${getFormattedTime()} [Razorpay Escrow] Refund executed: ₹${refundDiff.toLocaleString('en-IN')} credited to ${order.buyerName} (original auth ₹${order.retailPrice.toLocaleString('en-IN')} → final ₹${finalCapturedUnitPrice.toLocaleString('en-IN')})`
+          `${getFormattedTime()} [Razorpay Escrow] Refund executed: ₹${refundDiff.toLocaleString('en-IN')} credited to ${order.buyerName} (original auth ₹${authPrice.toLocaleString('en-IN')} → final ₹${finalCapturedUnitPrice.toLocaleString('en-IN')})`
+        );
+      } else {
+        order.capturedPrice = finalCapturedUnitPrice;
+        order.refundAmount = 0;
+        order.status = 'captured';
+
+        addLog(
+          `${getFormattedTime()} Escrow captured: ${order.buyerName} -> ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (locked at group tier ${discountPctVal}% off)`
         );
       }
     }
 
     if (totalRefundsIssued > 0) {
+      const refundSummaryStr = currentState.orders
+        .filter((o) => (o.refundAmount || 0) > 0)
+        .map((o) => `${o.buyerName} (₹${o.refundAmount?.toLocaleString('en-IN')})`)
+        .join(', ');
       addLog(
-        `${getFormattedTime()} [Notification] Dispatched refund confirmation & equalized receipts: ₹${totalRefundsIssued.toLocaleString('en-IN')} total returned to early buyers.`
+        `${getFormattedTime()} [Notification] Dispatched refund confirmation & equalized receipts: ₹${totalRefundsIssued.toLocaleString('en-IN')} total returned to: ${refundSummaryStr}.`
       );
     }
 
@@ -682,13 +683,16 @@ export async function closeWindowEngine() {
       `${getFormattedTime()} Final settlement complete: ${finalCount} units @ ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (seller net payout: ₹${totalPayout.toLocaleString('en-IN')})`
     );
 
-    const refundDiff = product.retailPrice - finalCapturedUnitPrice;
-    const refundMsg = `Settlement complete: ${discountPctVal}% group discount applied. ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`;
-
-    if (currentState.phoneStates.phoneA.ordered) currentState.phoneStates.phoneA.notification = refundMsg;
-    if (currentState.phoneStates.phoneB.ordered) currentState.phoneStates.phoneB.notification = refundMsg;
-    if (currentState.phoneStates.phoneD.ordered) {
-      currentState.phoneStates.phoneD.notification = `Standing order completed at ${discountPctVal}% group discount (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`;
+    // Update individual participant notifications
+    for (const order of currentState.orders) {
+      const buyerKey = order.buyerId as 'phoneA' | 'phoneB' | 'phoneC' | 'phoneD';
+      if (currentState.phoneStates[buyerKey]) {
+        if (order.refundAmount && order.refundAmount > 0) {
+          currentState.phoneStates[buyerKey].notification = `Settlement complete: Equalized to ${discountPctVal}% group tier (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}). ₹${order.refundAmount.toLocaleString('en-IN')} refund credited.`;
+        } else {
+          currentState.phoneStates[buyerKey].notification = `Settlement complete: Executed at ${discountPctVal}% group tier (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`;
+        }
+      }
     }
 
     currentState.sellerState = {

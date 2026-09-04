@@ -30,6 +30,9 @@ export default function BuyerPanel({
   const orderC = orders.find((o) => o.buyerId === 'phoneC');
   const orderD = orders.find((o) => o.buyerId === 'phoneD');
 
+  const refundedOrders = orders.filter((o) => (o.refundAmount || 0) > 0);
+  const totalRefundAmount = refundedOrders.reduce((sum, o) => sum + (o.refundAmount || 0), 0);
+
   return (
     <div className="bg-panel border border-hairline rounded-lg p-5 flex flex-col h-full">
       {/* Panel Header */}
@@ -48,13 +51,18 @@ export default function BuyerPanel({
       </div>
 
       {/* Settlement Refund Notice Banner */}
-      {windowClosed && (orderA?.refundAmount || orderB?.refundAmount) ? (
+      {windowClosed && refundedOrders.length > 0 ? (
         <div className="my-2 bg-[#F1F8F4] border border-[#C3E2CD] rounded-md p-2.5 flex items-start gap-2 text-xs text-ledgergreen">
-          <span className="font-bold">✓</span>
-          <div>
-            <strong className="font-medium text-ink">Escrow refund notification:</strong> Equalized credits of{' '}
-            <span className="font-mono font-semibold text-ledgergreen">₹{(orderA?.refundAmount || 4794).toLocaleString('en-IN')}</span>{' '}
-            disbursed to early buyers (Buyer A & Buyer B) via Razorpay Escrow.
+          <span className="font-bold text-sm leading-none mt-0.5">✓</span>
+          <div className="space-y-0.5 flex-1">
+            <div>
+              <strong className="font-medium text-ink">Escrow price equalization:</strong> Total refunds of{' '}
+              <span className="font-mono font-semibold text-ledgergreen">₹{totalRefundAmount.toLocaleString('en-IN')}</span>{' '}
+              disbursed to early buyers via Razorpay Escrow.
+            </div>
+            <div className="text-[11px] text-muted font-mono">
+              {refundedOrders.map((o) => `${o.buyerName}: ₹${o.refundAmount?.toLocaleString('en-IN')}`).join(' · ')}
+            </div>
           </div>
         </div>
       ) : null}
@@ -71,16 +79,18 @@ export default function BuyerPanel({
             <div className="text-xs text-muted mt-0.5 truncate">
               {phoneStates.phoneA.ordered
                 ? windowClosed
-                  ? 'Settled — retail order equalized to group rate'
+                  ? (orderA?.refundAmount || 0) > 0
+                    ? `Settled — equalized with ₹${orderA?.refundAmount?.toLocaleString('en-IN')} refund credit`
+                    : 'Settled — executed at group rate'
                   : 'Purchased retail — escrow hold pending group close'
                 : phoneStates.phoneA.couponReceived
                 ? `Nudged — ${phoneStates.phoneA.couponDetails?.discountPct || 3}% off unlock offer active`
                 : 'Searching catalog — retail checkout ready'}
             </div>
-            {windowClosed && orderA?.refundAmount ? (
+            {windowClosed && (orderA?.refundAmount || 0) > 0 ? (
               <div className="mt-1 flex items-center gap-1.5">
                 <span className="text-[11px] font-mono font-medium text-ledgergreen bg-[#EBF5EE] border border-[#C3E2CD] px-1.5 py-0.5 rounded">
-                  ₹{orderA.refundAmount.toLocaleString('en-IN')} refund credited
+                  ₹{orderA?.refundAmount?.toLocaleString('en-IN')} refund credited
                 </span>
                 <span className="text-[10px] text-muted">to original card</span>
               </div>
@@ -127,8 +137,8 @@ export default function BuyerPanel({
                   </div>
                   <div className="text-[10px] font-mono text-muted">
                     {windowClosed
-                      ? orderA?.refundAmount
-                        ? `Refund ₹${orderA.refundAmount.toLocaleString('en-IN')}`
+                      ? (orderA?.refundAmount || 0) > 0
+                        ? `Refund ₹${orderA?.refundAmount?.toLocaleString('en-IN')}`
                         : 'Settled'
                       : 'Held in escrow'}
                   </div>
@@ -150,16 +160,18 @@ export default function BuyerPanel({
             <div className="text-xs text-muted mt-0.5 truncate">
               {phoneStates.phoneB.ordered
                 ? windowClosed
-                  ? 'Settled — retail order equalized to group rate'
+                  ? (orderB?.refundAmount || 0) > 0
+                    ? `Settled — equalized with ₹${orderB?.refundAmount?.toLocaleString('en-IN')} refund credit`
+                    : 'Settled — executed at group rate'
                   : 'Purchased retail — triggered threshold nudge'
                 : phoneStates.phoneB.couponReceived
                 ? `Nudged — ${phoneStates.phoneB.couponDetails?.discountPct || 3}% off unlock offer active`
                 : 'Searching catalog — retail checkout ready'}
             </div>
-            {windowClosed && orderB?.refundAmount ? (
+            {windowClosed && (orderB?.refundAmount || 0) > 0 ? (
               <div className="mt-1 flex items-center gap-1.5">
                 <span className="text-[11px] font-mono font-medium text-ledgergreen bg-[#EBF5EE] border border-[#C3E2CD] px-1.5 py-0.5 rounded">
-                  ₹{orderB.refundAmount.toLocaleString('en-IN')} refund credited
+                  ₹{orderB?.refundAmount?.toLocaleString('en-IN')} refund credited
                 </span>
                 <span className="text-[10px] text-muted">to original card</span>
               </div>
@@ -206,8 +218,8 @@ export default function BuyerPanel({
                   </div>
                   <div className="text-[10px] font-mono text-muted">
                     {windowClosed
-                      ? orderB?.refundAmount
-                        ? `Refund ₹${orderB.refundAmount.toLocaleString('en-IN')}`
+                      ? (orderB?.refundAmount || 0) > 0
+                        ? `Refund ₹${orderB?.refundAmount?.toLocaleString('en-IN')}`
                         : 'Settled'
                       : 'Held in escrow'}
                   </div>
@@ -229,13 +241,22 @@ export default function BuyerPanel({
             <div className="text-xs text-muted mt-0.5 truncate">
               {phoneStates.phoneD.ordered
                 ? windowClosed
-                  ? 'Settled — executed at group discount tier'
+                  ? (orderD?.refundAmount || 0) > 0
+                    ? `Settled — auto-authorized at ₹${orderD?.authorizedPrice?.toLocaleString('en-IN')}, equalized down with ₹${orderD?.refundAmount?.toLocaleString('en-IN')} refund`
+                    : 'Settled — executed at group discount tier'
                   : 'Trigger condition met — auto-purchased on nudge'
                 : phoneStates.phoneD.status === 'logic_awaiting'
                 ? 'Logic awaiting — validating discount condition...'
                 : 'Rule set: buy if price drops to ₹75,000 or below'}
             </div>
-            {windowClosed && orderD ? (
+            {windowClosed && (orderD?.refundAmount || 0) > 0 ? (
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="text-[11px] font-mono font-medium text-ledgergreen bg-[#EBF5EE] border border-[#C3E2CD] px-1.5 py-0.5 rounded">
+                  ₹{orderD?.refundAmount?.toLocaleString('en-IN')} refund credited
+                </span>
+                <span className="text-[10px] text-muted">equalized to ₹{orderD?.capturedPrice?.toLocaleString('en-IN')}</span>
+              </div>
+            ) : windowClosed && orderD ? (
               <div className="mt-1 flex items-center gap-1.5">
                 <span className="text-[11px] font-mono text-navy bg-paper border border-hairline px-1.5 py-0.5 rounded">
                   Captured at ₹{orderD.capturedPrice?.toLocaleString('en-IN') || '74,707'} ({sellerState.tierApplied || 'Dynamic tier'})
@@ -258,7 +279,11 @@ export default function BuyerPanel({
                       : formatPrice(orderD?.authorizedPrice || Math.round(product.retailPrice * 0.935))}
                   </div>
                   <div className="text-[10px] font-mono text-muted">
-                    {windowClosed ? 'Settled' : 'Auto-authorized'}
+                    {windowClosed
+                      ? (orderD?.refundAmount || 0) > 0
+                        ? `Refund ₹${orderD?.refundAmount?.toLocaleString('en-IN')}`
+                        : 'Settled'
+                      : 'Auto-authorized'}
                   </div>
                 </div>
               ) : phoneStates.phoneD.status === 'logic_awaiting' ? (
@@ -273,7 +298,7 @@ export default function BuyerPanel({
           </div>
         </div>
 
-        {/* ROW 4: Buyer C (Manual - Deliberate Gap) */}
+        {/* ROW 4: Buyer C (Manual - Candidate) */}
         <div className="py-3 flex items-center justify-between gap-3 min-h-[76px]">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -282,14 +307,25 @@ export default function BuyerPanel({
             </div>
             <div className="text-xs text-muted mt-0.5 truncate">
               {phoneStates.phoneC.ordered
-                ? 'Purchased with group coupon'
+                ? windowClosed
+                  ? (orderC?.refundAmount || 0) > 0
+                    ? `Settled — equalized with ₹${orderC?.refundAmount?.toLocaleString('en-IN')} refund credit`
+                    : 'Settled — executed at group coupon rate'
+                  : 'Purchased with group coupon'
                 : windowClosed
                 ? 'Offer expired — window closed without purchase'
                 : phoneStates.phoneC.couponReceived
                 ? `Nudged — awaiting response (${phoneStates.phoneC.couponDetails?.discountPct || 3}% discount offer sent)`
                 : 'Searching catalog — standing by'}
             </div>
-            {windowClosed && !phoneStates.phoneC.ordered ? (
+            {windowClosed && (orderC?.refundAmount || 0) > 0 ? (
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="text-[11px] font-mono font-medium text-ledgergreen bg-[#EBF5EE] border border-[#C3E2CD] px-1.5 py-0.5 rounded">
+                  ₹{orderC?.refundAmount?.toLocaleString('en-IN')} refund credited
+                </span>
+                <span className="text-[10px] text-muted">to original card</span>
+              </div>
+            ) : windowClosed && !phoneStates.phoneC.ordered ? (
               <div className="mt-1">
                 <span className="text-[10px] font-mono text-muted bg-paper px-1.5 py-0.5 rounded border border-hairline">
                   Offer expired (unredeemed)
@@ -326,10 +362,16 @@ export default function BuyerPanel({
                       windowClosed ? 'text-ledgergreen' : 'text-oxblood'
                     }`}
                   >
-                    {formatPrice(orderC?.authorizedPrice || Math.round(product.retailPrice * 0.94))}
+                    {windowClosed && orderC?.capturedPrice
+                      ? formatPrice(orderC.capturedPrice)
+                      : formatPrice(orderC?.authorizedPrice || Math.round(product.retailPrice * 0.94))}
                   </div>
                   <div className="text-[10px] font-mono text-muted">
-                    {windowClosed ? 'Settled' : 'Held'}
+                    {windowClosed
+                      ? (orderC?.refundAmount || 0) > 0
+                        ? `Refund ₹${orderC?.refundAmount?.toLocaleString('en-IN')}`
+                        : 'Settled'
+                      : 'Held'}
                   </div>
                 </div>
               ) : (

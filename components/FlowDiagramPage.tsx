@@ -76,10 +76,10 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
       color: '#2F6B4F',
       summary: 'Dynamic 3-unit tier (6.5% off) applied. Equalized refunds issued instantly.',
       details:
-        'Aggregation window closes. The dynamic tier for 3 units (6.5% off, ₹74,707/unit) is finalized. Razorpay captures escrow for all 3 buyers, instantly credits ₹5,193 equalized refunds to Buyer A & B, and routes net wholesale payout (₹2,24,121) to the seller.',
-      badge: 'Settlement: ₹2,24,121 net payout',
-      activeNodeIds: ['razorpay_stack', 'refunds', 'b1', 'b2', 'seller'],
-      activeLinkKeys: ['razorpay_stack-refunds', 'refunds-b1', 'refunds-b2', 'razorpay_stack-seller'],
+        'Aggregation window closes. The dynamic tier for 3 units (6.5% off, ₹74,707/unit) is finalized. Razorpay captures escrow for all 3 buyers, instantly credits ₹5,193 equalized refunds to Buyer A & B, and completes price equalization.',
+      badge: 'Equalization: Escrow captured & equalized',
+      activeNodeIds: ['b1', 'b2', 'b3', 'razorpay_stack', 'refunds'],
+      activeLinkKeys: ['b1-razorpay_stack', 'b2-razorpay_stack', 'b3-razorpay_stack', 'razorpay_stack-refunds', 'refunds-b1', 'refunds-b2'],
     },
   ];
 
@@ -111,8 +111,8 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
     { key: 'b3-razorpay_stack', from: 'b3', to: 'razorpay_stack', label: 'Auto-order (3rd unit)' },
     { key: 'razorpay_stack-seller', from: 'razorpay_stack', to: 'seller', label: 'Wholesale payout' },
     { key: 'razorpay_stack-refunds', from: 'razorpay_stack', to: 'refunds', label: 'Escrow equalization' },
-    { key: 'refunds-b1', from: 'refunds', to: 'b1', label: '₹4,794 refund' },
-    { key: 'refunds-b2', from: 'refunds', to: 'b2', label: '₹4,794 refund' },
+    { key: 'refunds-b1', from: 'refunds', to: 'b1', label: '₹5,193 refund' },
+    { key: 'refunds-b2', from: 'refunds', to: 'b2', label: '₹5,193 refund' },
   ];
 
   const currentPhase = workflowPhases.find((p) => p.step === activeStep) || workflowPhases[0];
@@ -126,6 +126,12 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
   const generateOrthogonalPath = (fromId: string, toId: string) => {
     const p1 = getNodePos(fromId);
     const p2 = getNodePos(toId);
+
+    // Specific drop-below routing for Decision Engine -> Seller (to avoid passing through LLM Targeting Nudge)
+    if (fromId === 'razorpay_stack' && toId === 'seller') {
+      const yBelow = 265;
+      return `M ${p1.x} ${p1.y + 25} L ${p1.x} ${yBelow} L ${p2.x} ${yBelow} L ${p2.x} ${p2.y + 25}`;
+    }
 
     // If perfectly aligned vertically or horizontally
     if (p1.x === p2.x) {

@@ -1,20 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import {
-  RotateCcw,
-  Zap,
-  Plus,
-  FastForward,
-  Key,
-  Shield,
-  Layers,
-  Sparkles,
-  ChevronDown,
-  ShoppingBag,
-  ExternalLink,
-  HelpCircle,
-} from 'lucide-react';
 import { AppState } from '@/lib/store';
 import { PRODUCT_CATALOG } from '@/lib/constants';
 
@@ -52,57 +38,49 @@ export default function Header({
   };
 
   const statusBadge = state.windowClosed ? (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-950/60 text-rose-300 border border-rose-800/60">
-      <span className="w-2 h-2 rounded-full bg-rose-400" /> Settled & Closed
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-oxblood bg-paper border border-hairline">
+      Settled & closed
     </span>
   ) : state.windowStarted ? (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
-      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Active ({state.secondsRemaining}s)
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-ledgergreen bg-paper border border-hairline">
+      Active ({state.secondsRemaining}s)
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-800/70 text-slate-300 border border-slate-700/60">
-      <span className="w-2 h-2 rounded-full bg-slate-400" /> Idle (Ready)
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-muted bg-paper border border-hairline">
+      Ready (idle)
     </span>
   );
 
   return (
-    <header className="bg-[#0E1420] border-b border-[#1E293B] sticky top-0 z-40 px-4 py-2.5 shadow-md">
-      <div className="max-w-[1750px] mx-auto flex flex-col xl:flex-row items-center justify-between gap-3">
-        {/* Branding & Product Switcher */}
-        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-between xl:justify-start">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0C66E4] flex items-center justify-center text-white font-bold text-sm shadow-sm">
-              <span className="tracking-tighter">R</span>
+    <header className="bg-panel border-b border-hairline sticky top-0 z-40 px-6 py-3">
+      <div className="max-w-[1700px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
+        {/* Branding & SKU selector */}
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-serif text-base font-bold text-ink tracking-tight">
+                Threshold-Discount Agent
+              </span>
+              <span className="text-[10px] font-mono text-muted bg-paper px-1.5 py-0.5 rounded border border-hairline">
+                Razorpay sandbox
+              </span>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-100 tracking-tight">
-                  Razorpay Escrow & Demand Agent
-                </span>
-                <span className="text-[10px] bg-blue-950 text-blue-300 px-1.5 py-0.5 rounded font-mono font-medium border border-blue-800/60">
-                  SANDBOX
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Automated Threshold Group-Discount Decision Engine
-              </p>
-            </div>
+            <p className="text-xs text-muted">
+              Autonomous demand aggregation & price equalization ledger
+            </p>
           </div>
 
-          {/* Dynamic Product Selector */}
           {onSwitchProduct && (
-            <div className="flex items-center gap-1.5 bg-[#151E2E] border border-[#1E293B] px-2.5 py-1 rounded-lg">
-              <ShoppingBag className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-xs text-slate-400 font-medium hidden sm:inline">SKU:</span>
+            <div className="flex items-center gap-1.5 bg-paper border border-hairline px-2.5 py-1 rounded">
+              <span className="text-xs text-muted">SKU:</span>
               <select
                 value={state.activeProduct?.id || PRODUCT_CATALOG[0].id}
                 onChange={(e) => onSwitchProduct(e.target.value)}
                 disabled={state.windowStarted && !state.windowClosed}
-                className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer disabled:opacity-50"
-                title={state.windowStarted && !state.windowClosed ? 'Reset before switching product' : 'Select active SKU catalog item'}
+                className="bg-transparent text-xs font-medium text-ink focus:outline-none cursor-pointer disabled:opacity-50"
               >
                 {PRODUCT_CATALOG.map((prod) => (
-                  <option key={prod.id} value={prod.id} className="bg-[#0E1420] text-slate-200">
+                  <option key={prod.id} value={prod.id} className="bg-panel text-ink">
                     {prod.name} (₹{prod.retailPrice.toLocaleString('en-IN')})
                   </option>
                 ))}
@@ -113,144 +91,134 @@ export default function Header({
           <div className="hidden lg:block">{statusBadge}</div>
         </div>
 
-        {/* Center Mode Switcher Tabs */}
+        {/* View Switcher */}
         {onToggleViewMode && (
-          <div className="flex bg-[#151E2E] p-1 rounded-lg border border-[#1E293B] text-xs shadow-inner">
+          <div className="flex bg-paper p-0.5 rounded border border-hairline text-xs">
             <button
+              type="button"
               onClick={() => onToggleViewMode('demo')}
-              className={`px-3 py-1 rounded-md font-semibold flex items-center gap-1.5 transition ${
+              className={`px-3 py-1 rounded font-medium transition ${
                 viewMode === 'demo'
-                  ? 'bg-[#0C66E4] text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-panel text-ink shadow-sm border border-hairline'
+                  : 'text-muted hover:text-ink'
               }`}
             >
-              <Layers className="w-3.5 h-3.5" /> Operations Console
+              Operations console
             </button>
             <button
+              type="button"
               onClick={() => onToggleViewMode('architecture')}
-              className={`px-3 py-1 rounded-md font-semibold flex items-center gap-1.5 transition ${
+              className={`px-3 py-1 rounded font-medium transition ${
                 viewMode === 'architecture'
-                  ? 'bg-[#0C66E4] text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-panel text-ink shadow-sm border border-hairline'
+                  : 'text-muted hover:text-ink'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Architecture Workflow
+              Architecture workflow
             </button>
           </div>
         )}
 
         {/* Action Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Simulated Order Buttons */}
+        <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => onSimOrder(1)}
             disabled={state.windowClosed}
-            className="px-2.5 py-1.5 bg-[#151E2E] hover:bg-[#1A253A] disabled:opacity-40 text-slate-300 text-xs font-medium rounded-lg border border-[#1E293B] flex items-center gap-1.5 transition"
-            title="Simulate 1 order from external buyer"
+            className="px-2.5 py-1 bg-paper hover:bg-[#EAE6DD] disabled:opacity-40 text-ink text-xs font-medium rounded border border-hairline transition"
           >
-            <Plus className="w-3.5 h-3.5 text-blue-400" /> +1 Order
+            +1 Order
           </button>
 
           <button
-            onClick={() => onSimOrder(5)}
-            disabled={state.windowClosed}
-            className="px-2.5 py-1.5 bg-blue-950/60 hover:bg-blue-900/60 disabled:opacity-40 text-blue-200 text-xs font-medium rounded-lg border border-blue-800/60 flex items-center gap-1.5 transition"
-            title="Add 5 orders quickly for live presentation"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-400" /> +5 Batch
-          </button>
-
-          {/* Fast Forward Window */}
-          <button
+            type="button"
             onClick={onFastForward}
             disabled={state.windowClosed || !state.windowStarted}
-            className="px-2.5 py-1.5 bg-amber-950/50 hover:bg-amber-900/60 disabled:opacity-40 text-amber-200 text-xs font-medium rounded-lg border border-amber-800/50 flex items-center gap-1.5 transition"
+            className="px-2.5 py-1 bg-paper hover:bg-[#EAE6DD] disabled:opacity-40 text-oxblood text-xs font-medium rounded border border-hairline transition"
             title="Fast forward timer to trigger settlement immediately"
           >
-            <FastForward className="w-3.5 h-3.5 text-amber-400" /> Fast-Forward Timer
+            Fast-forward timer
           </button>
 
-          {/* Onboarding Guide "?" Button */}
           <button
+            type="button"
             onClick={onOpenOnboarding}
-            className="px-2.5 py-1.5 bg-[#151E2E] hover:bg-[#1A253A] text-slate-300 hover:text-white text-xs font-medium rounded-lg border border-[#1E293B] flex items-center gap-1.5 transition"
-            title="What you're about to see (15s Quick Orientation)"
+            className="px-2.5 py-1 bg-paper hover:bg-[#EAE6DD] text-ink text-xs font-medium rounded border border-hairline transition"
           >
-            <HelpCircle className="w-3.5 h-3.5 text-blue-400" />
-            <span>Guide</span>
+            Guide
           </button>
 
-          {/* Key Config */}
           <button
+            type="button"
             onClick={() => setShowKeyModal(true)}
-            className="px-2.5 py-1.5 bg-[#151E2E] hover:bg-[#1A253A] text-slate-300 text-xs font-medium rounded-lg border border-[#1E293B] flex items-center gap-1.5 transition"
+            className="px-2.5 py-1 bg-paper hover:bg-[#EAE6DD] text-muted hover:text-ink text-xs font-medium rounded border border-hairline transition"
           >
-            <Key className="w-3.5 h-3.5 text-slate-400" /> API Keys
+            API keys
           </button>
 
-          {/* Reset Demo Button */}
           <button
+            type="button"
             onClick={onReset}
-            className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-200 text-xs font-semibold rounded-lg border border-rose-800/50 flex items-center gap-1.5 transition"
-            title="Reset aggregation cycle"
+            className="px-3 py-1 bg-paper hover:bg-[#EAE6DD] text-oxblood text-xs font-medium rounded border border-hairline transition"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-rose-400" /> Reset
+            Reset
           </button>
         </div>
       </div>
 
-      {/* Razorpay API Key Modal */}
+      {/* API Key Modal */}
       {showKeyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-[#0E1420] border border-[#1E293B] rounded-xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
-              <h3 className="text-white text-sm font-semibold flex items-center gap-2">
-                <Key className="w-4 h-4 text-blue-400" /> Razorpay Test Credentials
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-panel border border-hairline rounded-lg p-5 shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-hairline pb-3">
+              <h3 className="font-serif text-base font-semibold text-ink">
+                Razorpay credentials
               </h3>
               <button
+                type="button"
                 onClick={() => setShowKeyModal(false)}
-                className="text-slate-400 hover:text-white text-xs"
+                className="text-muted hover:text-ink text-sm"
               >
                 ✕
               </button>
             </div>
             <form onSubmit={handleSaveKeys} className="space-y-3">
               <div>
-                <label className="text-xs text-slate-400 block mb-1 font-medium">Razorpay Key ID</label>
+                <label className="text-xs text-muted block mb-1">Key ID</label>
                 <input
                   type="text"
                   placeholder="rzp_test_..."
                   value={keyId}
                   onChange={(e) => setKeyId(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#151E2E] border border-[#1E293B] rounded-lg text-xs text-slate-200 font-mono focus:border-[#0C66E4] focus:outline-none"
+                  className="w-full px-3 py-1.5 bg-paper border border-hairline rounded text-xs font-mono text-ink focus:outline-none focus:border-navy"
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1 font-medium">Razorpay Key Secret</label>
+                <label className="text-xs text-muted block mb-1">Key secret</label>
                 <input
                   type="password"
                   placeholder="Secret key..."
                   value={keySecret}
                   onChange={(e) => setKeySecret(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#151E2E] border border-[#1E293B] rounded-lg text-xs text-slate-200 font-mono focus:border-[#0C66E4] focus:outline-none"
+                  className="w-full px-3 py-1.5 bg-paper border border-hairline rounded text-xs font-mono text-ink focus:outline-none focus:border-navy"
                 />
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed bg-[#151E2E] p-2.5 rounded-lg border border-[#1E293B]">
-                Leave empty to run in Built-in Razorpay Sandbox Simulation mode (all escrow orders, captures, and refund flows run automatically).
+              <p className="text-xs text-muted bg-paper p-2 rounded border border-hairline">
+                Leave empty to run in built-in simulated sandbox mode.
               </p>
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowKeyModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 font-medium"
+                  className="px-3 py-1 text-xs text-muted hover:underline"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-[#0C66E4] hover:bg-blue-600 text-white text-xs font-semibold rounded-lg shadow-sm"
+                  className="px-3 py-1 bg-navy text-white text-xs font-medium rounded"
                 >
-                  Save Credentials
+                  Save credentials
                 </button>
               </div>
             </form>
@@ -260,4 +228,5 @@ export default function Header({
     </header>
   );
 }
+
 

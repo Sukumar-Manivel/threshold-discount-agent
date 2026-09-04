@@ -35,7 +35,7 @@ export default function Home() {
     } catch {}
   }, []);
 
-  // Poll state every 500ms for smooth real-time updates across panels
+  // Poll state every 400ms for smooth real-time updates across panels
   const fetchState = useCallback(async () => {
     try {
       const res = await fetch('/api/state');
@@ -50,7 +50,7 @@ export default function Home() {
 
   useEffect(() => {
     fetchState();
-    const interval = setInterval(fetchState, 500);
+    const interval = setInterval(fetchState, 400);
     return () => clearInterval(interval);
   }, [fetchState]);
 
@@ -159,12 +159,17 @@ export default function Home() {
     }
   };
 
+  const [isAuthorizing, setIsAuthorizing] = useState(false);
+
   const handleOpenPaymentModal = (
     buyerId: 'phoneA' | 'phoneB' | 'phoneC' | 'phoneD',
     buyerName: string,
     amount: number,
     isDiscounted = false
   ) => {
+    if (isAuthorizing) return;
+    if (state?.phoneStates[buyerId]?.ordered || state?.windowClosed) return;
+
     setModalState({
       isOpen: true,
       buyerId,
@@ -175,17 +180,25 @@ export default function Home() {
   };
 
   const handlePaymentSuccess = async (paymentId: string) => {
-    if (!modalState.buyerId || !modalState.buyerName) return;
+    const { buyerId, buyerName, amount, isDiscounted } = modalState;
+    if (!buyerId || !buyerName || isAuthorizing) return;
+    if (state?.phoneStates[buyerId]?.ordered || state?.windowClosed) {
+      setModalState({ isOpen: false });
+      return;
+    }
+
+    setIsAuthorizing(true);
+    setModalState({ isOpen: false });
 
     try {
       const res = await fetch('/api/order/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          buyerId: modalState.buyerId,
-          buyerName: modalState.buyerName,
-          authorizedPrice: modalState.amount,
-          isDiscountedOnAuth: modalState.isDiscounted || false,
+          buyerId,
+          buyerName,
+          authorizedPrice: amount,
+          isDiscountedOnAuth: isDiscounted || false,
         }),
       });
 
@@ -196,15 +209,14 @@ export default function Home() {
     } catch (err) {
       console.error('Failed to authorize order:', err);
     } finally {
-      setModalState({ isOpen: false });
+      setIsAuthorizing(false);
     }
   };
 
   if (!state) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 font-mono text-sm">
+      <div className="min-h-screen bg-paper flex items-center justify-center text-muted font-mono text-xs">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
           <span>Initializing Razorpay Agent Stack Decision Engine...</span>
         </div>
       </div>
@@ -212,7 +224,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-paper text-ink flex flex-col font-sans">
       {/* Navigation Top Bar */}
       <Header
         state={state}
@@ -228,13 +240,13 @@ export default function Home() {
 
       {/* Main Content Area */}
       {viewMode === 'architecture' ? (
-        <main className="flex-1 p-4 max-w-[1700px] w-full mx-auto">
+        <main className="flex-1 p-6 max-w-[1700px] w-full mx-auto">
           <FlowDiagramPage onSwitchToDemo={() => setViewMode('demo')} />
         </main>
       ) : (
-        <main className="flex-1 p-4 max-w-[1700px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Panel 1: Buyer Panel (Left Column - 4 Phone Frames) */}
-          <div className="lg:col-span-4 h-[calc(100vh-100px)] min-h-[620px]">
+        <main className="flex-1 p-6 max-w-[1700px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Panel 1: Buyer Ledger (Left Column - 5 rows) */}
+          <div className="lg:col-span-4 h-[calc(100vh-100px)] min-h-[580px]">
             <BuyerPanel
               state={state}
               onOpenPaymentModal={handleOpenPaymentModal}
@@ -244,12 +256,12 @@ export default function Home() {
           </div>
 
           {/* Panel 2: Agent Stack Decision Engine (Center Column) */}
-          <div className="lg:col-span-5 h-[calc(100vh-100px)] min-h-[620px]">
+          <div className="lg:col-span-5 h-[calc(100vh-100px)] min-h-[580px]">
             <AgentStackPanel state={state} />
           </div>
 
           {/* Panel 3: Seller Dashboard (Right Column) */}
-          <div className="lg:col-span-3 h-[calc(100vh-100px)] min-h-[620px]">
+          <div className="lg:col-span-3 h-[calc(100vh-100px)] min-h-[580px]">
             <SellerDashboard state={state} />
           </div>
         </main>
@@ -274,3 +286,4 @@ export default function Home() {
     </div>
   );
 }
+

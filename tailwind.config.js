@@ -7,16 +7,19 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        darkbg: "#0B0F19",
-        panelbg: "#111827",
-        panelborder: "#1F293D",
-        accentindigo: "#6366F1",
-        accentemerald: "#10B981",
-        accentamber: "#F59E0B",
-        accentrose: "#EF4444",
+        paper: "#F7F5F0",
+        panel: "#FFFFFF",
+        ink: "#1B1B18",
+        muted: "#6B6558",
+        oxblood: "#8C2F2F",
+        ledgergreen: "#2F6B4F",
+        navy: "#24344D",
+        hairline: "#E5E1D8",
       },
       fontFamily: {
-        mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"],
+        serif: ['"Fraunces"', "Georgia", "serif"],
+        sans: ['"IBM Plex Sans"', "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
     },
   },

@@ -3,10 +3,13 @@ import {
   DEFAULT_DISCOUNT_TIERS,
   MAX_WINDOW_SECONDS,
   MIN_QTY_FOR_ANY_DISCOUNT,
+  MAX_NUDGES_PER_WINDOW,
   PRODUCT_CATALOG,
   Product,
   TARGET_QTY,
+  computeDynamicDiscount,
   getTierDiscount,
+  DynamicDiscountResult,
 } from './constants';
 import {
   captureRazorpayPayment,
@@ -32,8 +35,9 @@ export interface OrderItem {
   isDiscountedOnAuth?: boolean;
 }
 
-export interface PhoneState {
+export interface ParticipantState {
   phoneA: {
+    status: 'idle' | 'searching' | 'ordered';
     ordered: boolean;
     orderId?: string;
     paymentId?: string;
@@ -42,6 +46,7 @@ export interface PhoneState {
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
   };
   phoneB: {
+    status: 'idle' | 'searching' | 'ordered';
     ordered: boolean;
     orderId?: string;
     paymentId?: string;
@@ -50,26 +55,26 @@ export interface PhoneState {
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
   };
   phoneC: {
-    promptText: string;
-    parsed: boolean;
-    recommendationShow: boolean;
-    approved: boolean;
+    status: 'idle' | 'searching' | 'nudged' | 'ordered';
     ordered: boolean;
     orderId?: string;
     notification?: string;
-  };
-  phoneD: {
-    promptText: string;
-    isWatching: boolean;
     couponReceived: boolean;
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
-    approved: boolean;
+  };
+  phoneD: {
+    instruction: string;
+    targetMaxPrice: number;
+    status: 'idle' | 'watching' | 'logic_awaiting' | 'ordered';
     ordered: boolean;
     orderId?: string;
     notification?: string;
+    couponReceived: boolean;
+    couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
   };
   phoneE: {
     searchQuery: string;
+    status: 'unrelated_search';
     couponReceived: boolean;
   };
 }
@@ -110,13 +115,14 @@ export interface AppState {
   startTime: number | null;
   logs: string[];
   aiReasoningLog: string[];
-  phoneStates: PhoneState;
+  phoneStates: ParticipantState;
   sellerState: SellerState;
   sellerConfig: SellerConfig;
   razorpayKeys: { keyId: string; keySecret: string };
   simulatedVolumeCount: number;
   lastParseResult: ParseIntentResult | null;
   couponTargetingSummary: string | null;
+  nudgeCount: number;
 }
 
 function getFormattedTime(): string {
@@ -139,28 +145,24 @@ const initialState: AppState = {
   secondsRemaining: MAX_WINDOW_SECONDS,
   startTime: null,
   logs: [
-    `${getFormattedTime()} Decision Engine online. Tracking aggregate demand for ${DEFAULT_PRODUCT.name} (${DEFAULT_PRODUCT.sku}).`,
+    `${getFormattedTime()} Decision engine initialized. Tracking aggregate demand for ${DEFAULT_PRODUCT.name} (${DEFAULT_PRODUCT.sku}).`,
   ],
   aiReasoningLog: [],
+  nudgeCount: 0,
   phoneStates: {
-    phoneA: { ordered: false },
-    phoneB: { ordered: false },
-    phoneC: {
-      promptText: 'buy ' + DEFAULT_PRODUCT.name,
-      parsed: false,
-      recommendationShow: false,
-      approved: false,
-      ordered: false,
-    },
+    phoneA: { status: 'searching', ordered: false },
+    phoneB: { status: 'searching', ordered: false },
+    phoneC: { status: 'searching', ordered: false, couponReceived: false },
     phoneD: {
-      promptText: 'buy this for me only if the price drops, ask before you pay',
-      isWatching: false,
-      couponReceived: false,
-      approved: false,
+      instruction: 'Buy iPhone 17 Pro if price drops to ₹75,000 or below',
+      targetMaxPrice: 75500,
+      status: 'idle',
       ordered: false,
+      couponReceived: false,
     },
     phoneE: {
-      searchQuery: 'AirPods Max',
+      searchQuery: 'wireless earbuds',
+      status: 'unrelated_search',
       couponReceived: false,
     },
   },
@@ -171,7 +173,7 @@ const initialState: AppState = {
   sellerConfig: {
     tiers: { ...DEFAULT_DISCOUNT_TIERS },
     maxDiscountDepth: 0.10,
-    isApproved: false,
+    isApproved: true,
     approvedAt: null,
   },
   razorpayKeys: {
@@ -189,8 +191,9 @@ export function switchProduct(productId: string) {
   const product = PRODUCT_CATALOG.find((p) => p.id === productId) || DEFAULT_PRODUCT;
   resetState();
   currentState.activeProduct = product;
-  currentState.phoneStates.phoneC.promptText = `buy ${product.name}`;
-  addLog(`${getFormattedTime()} Active product changed to: ${product.name} (SKU: ${product.sku}, Retail: ₹${product.retailPrice.toLocaleString('en-IN')})`);
+  currentState.phoneStates.phoneD.instruction = `Buy ${product.name} if price drops to 6%+ off`;
+  currentState.phoneStates.phoneD.targetMaxPrice = Math.round(product.retailPrice * 0.94);
+  addLog(`${getFormattedTime()} Active product changed to: ${product.name} (${product.sku}, retail ₹${product.retailPrice.toLocaleString('en-IN')})`);
   return currentState;
 }
 
@@ -201,21 +204,20 @@ export function updateSellerConfig(tiers: Record<number, number>, maxDiscountDep
     isApproved: true,
     approvedAt: getFormattedTime(),
   };
-  // Apply seller's custom tiers as the active discount tiers
   currentState.discountTiers = { ...tiers };
-  addLog(`${getFormattedTime()} Seller Configuration Saved — ${Object.keys(tiers).length} tier(s) configured (max depth: ${Math.round(maxDiscountDepth * 100)}%). Seller approved.`);
+  addLog(`${getFormattedTime()} Seller configuration saved: ${Object.keys(tiers).length} tier(s) active (max discount ${Math.round(maxDiscountDepth * 100)}%).`);
 }
 
 export function setLastParseResult(result: ParseIntentResult) {
   currentState.lastParseResult = result;
-  addAiLog(`${getFormattedTime()} LLM Intent Parse → SKU: ${result.matchedSkuId || 'none'}, Confidence: ${(result.confidence * 100).toFixed(0)}%, Model: ${result.modelUsed}`);
-  addAiLog(`${getFormattedTime()} LLM Reasoning: "${result.reasoning}"`);
+  addAiLog(`${getFormattedTime()} Intent parse: SKU ${result.matchedSkuId || 'none'}, confidence ${(result.confidence * 100).toFixed(0)}%, model ${result.modelUsed}`);
+  addAiLog(`${getFormattedTime()} Reasoning: "${result.reasoning}"`);
 }
 
 export function addAiLog(message: string) {
-  currentState.aiReasoningLog.push(message);
-  // Also add to main log with AI prefix for visibility
-  currentState.logs.push(`🤖 ${message}`);
+  const sanitized = message.replace(/\$([0-9]+)/g, '₹$1').replace(/\$/g, '₹');
+  currentState.aiReasoningLog.push(sanitized);
+  currentState.logs.push(sanitized);
 }
 
 export async function autoAuthorizePhoneDIfNeeded() {
@@ -224,11 +226,16 @@ export async function autoAuthorizePhoneDIfNeeded() {
     !currentState.phoneStates.phoneD.ordered &&
     !currentState.windowClosed
   ) {
-    const defaultDiscounted = Math.round(currentState.activeProduct.retailPrice * 0.92);
+    currentState.phoneStates.phoneD.status = 'logic_awaiting';
+    const defaultDiscounted = Math.round(currentState.activeProduct.retailPrice * 0.94);
     const discountedPrice = currentState.phoneStates.phoneD.couponDetails?.discountedPrice || defaultDiscounted;
+    
+    // Auto-execute standing order with trigger condition met
+    addLog(`${getFormattedTime()} Standing-Order Agent trigger condition met (offer ₹${discountedPrice.toLocaleString('en-IN')} <= ₹${currentState.phoneStates.phoneD.targetMaxPrice.toLocaleString('en-IN')}). Auto-executing purchase.`);
+    
     await authorizeBuyerOrder(
       'phoneD',
-      'Standing-Order Agent (Phone D)',
+      'Standing-Order Agent',
       discountedPrice,
       true
     );
@@ -236,20 +243,10 @@ export async function autoAuthorizePhoneDIfNeeded() {
 }
 
 export function getState(): AppState {
-  // Tick timer if active
   if (currentState.windowStarted && !currentState.windowClosed && currentState.startTime) {
     const elapsed = Math.floor((Date.now() - currentState.startTime) / 1000);
     const remaining = Math.max(0, MAX_WINDOW_SECONDS - elapsed);
     currentState.secondsRemaining = remaining;
-
-    // Auto-authorize Phone D standing order when remaining time <= 30s
-    if (
-      remaining <= 30 &&
-      currentState.phoneStates.phoneD.couponReceived &&
-      !currentState.phoneStates.phoneD.ordered
-    ) {
-      autoAuthorizePhoneDIfNeeded();
-    }
 
     if (remaining === 0) {
       closeWindowEngine();
@@ -260,11 +257,12 @@ export function getState(): AppState {
 
 export function updateRazorpayKeys(keyId: string, keySecret: string) {
   currentState.razorpayKeys = { keyId, keySecret };
-  addLog(`[System] Updated Razorpay API Credentials: Key ID ${keyId ? keyId.substring(0, 8) + '...' : '(Simulated)'}`);
+  addLog(`[System] Updated Razorpay credentials: ${keyId ? keyId.substring(0, 8) + '...' : '(Simulated sandbox)'}`);
 }
 
 export function addLog(message: string) {
-  currentState.logs.push(message);
+  const sanitized = message.replace(/\$([0-9]+)/g, '₹$1').replace(/\$/g, '₹');
+  currentState.logs.push(sanitized);
 }
 
 export function startTimerIfNeeded() {
@@ -272,9 +270,12 @@ export function startTimerIfNeeded() {
     currentState.windowStarted = true;
     currentState.startTime = Date.now();
     currentState.secondsRemaining = MAX_WINDOW_SECONDS;
-    addLog(`${getFormattedTime()} Demand aggregation window OPENED (${MAX_WINDOW_SECONDS}s countdown timer started)`);
+    addLog(`${getFormattedTime()} Demand aggregation window opened (${MAX_WINDOW_SECONDS}s countdown timer started)`);
   }
 }
+
+const inFlightAuthorizations = new Set<string>();
+let pendingPhoneDTimeout: NodeJS.Timeout | null = null;
 
 export async function authorizeBuyerOrder(
   buyerId: 'phoneA' | 'phoneB' | 'phoneC' | 'phoneD' | 'sim',
@@ -286,112 +287,188 @@ export async function authorizeBuyerOrder(
     throw new Error('Aggregation window has already closed.');
   }
 
-  const effectivePrice = authorizedPrice || currentState.activeProduct.retailPrice;
+  // 1. Idempotency Guard: Refuse to create a duplicate order for a participant in the current window
+  if (buyerId !== 'sim') {
+    const existingOrder = currentState.orders.find((o) => o.buyerId === buyerId);
+    if (existingOrder) {
+      addLog(
+        `${getFormattedTime()} [Idempotency Guard] Duplicate order authorization rejected: ${buyerName} already has an active order (Order #${existingOrder.orderNumber}) in this aggregation window.`
+      );
+      return existingOrder;
+    }
 
-  startTimerIfNeeded();
+    if (currentState.phoneStates[buyerId]?.ordered) {
+      const existing = currentState.orders.find((o) => o.buyerId === buyerId);
+      if (existing) {
+        addLog(
+          `${getFormattedTime()} [Idempotency Guard] Duplicate authorization blocked: ${buyerName} is already marked as ordered.`
+        );
+        return existing;
+      }
+    }
 
-  const orderNum = currentState.orders.length + 1;
-  const receipt = `rcpt_${buyerId}_${Date.now()}`;
+    // In-flight concurrency lock: drop simultaneous double-clicks/requests
+    if (inFlightAuthorizations.has(buyerId)) {
+      addLog(
+        `${getFormattedTime()} [Idempotency Guard] In-flight authorization in progress for ${buyerName}. Duplicate request dropped.`
+      );
+      const existing = currentState.orders.find((o) => o.buyerId === buyerId);
+      if (existing) return existing;
+      throw new Error(`Authorization already in progress for ${buyerName}.`);
+    }
 
-  // 1. Create Razorpay order
-  const rzpOrder = await createRazorpayOrder(
-    effectivePrice * 100, // in paise
-    receipt,
-    currentState.razorpayKeys
-  );
+    inFlightAuthorizations.add(buyerId);
+  }
 
-  const paymentId = `pay_${Math.random().toString(36).substring(2, 10)}`;
+  try {
+    const effectivePrice = authorizedPrice || currentState.activeProduct.retailPrice;
 
-  const newOrder: OrderItem = {
-    id: `ord_${Date.now()}_${orderNum}`,
-    orderNumber: orderNum,
-    buyerId,
-    buyerName,
-    sku: currentState.activeProduct.sku,
-    retailPrice: currentState.activeProduct.retailPrice,
-    authorizedPrice: effectivePrice,
-    razorpayOrderId: rzpOrder.id,
-    paymentId,
-    status: 'authorized',
-    timestamp: getFormattedTime(),
-    isDiscountedOnAuth,
-  };
+    startTimerIfNeeded();
 
-  currentState.orders.push(newOrder);
-  currentState.sellerState.totalOrdersReceived = currentState.orders.length;
+    const orderNum = currentState.orders.length + 1;
+    const receipt = `rcpt_${buyerId}_${Date.now()}`;
 
-  // Audit Log Entry
-  if (isDiscountedOnAuth) {
-    addLog(
-      `${getFormattedTime()} Order #${orderNum} [AUTHORIZED] — ${buyerName} at discounted ₹${effectivePrice.toLocaleString('en-IN')} (escrow hold pending group settlement)`
+    // 1. Create Razorpay order
+    const rzpOrder = await createRazorpayOrder(
+      effectivePrice * 100, // in paise
+      receipt,
+      currentState.razorpayKeys
     );
-  } else {
-    addLog(
-      `${getFormattedTime()} Order #${orderNum} [AUTHORIZED] — ${buyerName} at standard retail ₹${effectivePrice.toLocaleString('en-IN')} (held in Razorpay Escrow)`
-    );
-  }
 
-  // Update phone states
-  if (buyerId === 'phoneA') {
-    currentState.phoneStates.phoneA = { ordered: true, orderId: newOrder.id, paymentId };
-  } else if (buyerId === 'phoneB') {
-    currentState.phoneStates.phoneB = { ordered: true, orderId: newOrder.id, paymentId };
-  } else if (buyerId === 'phoneC') {
-    currentState.phoneStates.phoneC.ordered = true;
-    currentState.phoneStates.phoneC.orderId = newOrder.id;
-  } else if (buyerId === 'phoneD') {
-    currentState.phoneStates.phoneD.ordered = true;
-    currentState.phoneStates.phoneD.orderId = newOrder.id;
-  }
+    const paymentId = `pay_${Math.random().toString(36).substring(2, 10)}`;
 
-  // Threshold Check Trigger Logic — only run while window is active
-  if (!currentState.windowClosed && currentState.secondsRemaining > 0) {
-    checkThresholdAndTriggerCoupon();
-  }
+    const newOrder: OrderItem = {
+      id: `ord_${Date.now()}_${orderNum}`,
+      orderNumber: orderNum,
+      buyerId,
+      buyerName,
+      sku: currentState.activeProduct.sku,
+      retailPrice: currentState.activeProduct.retailPrice,
+      authorizedPrice: effectivePrice,
+      razorpayOrderId: rzpOrder.id,
+      paymentId,
+      status: 'authorized',
+      timestamp: getFormattedTime(),
+      isDiscountedOnAuth,
+    };
 
-  return newOrder;
+    currentState.orders.push(newOrder);
+    currentState.sellerState.totalOrdersReceived = currentState.orders.length;
+
+    // Audit log entry
+    if (isDiscountedOnAuth) {
+      addLog(
+        `${getFormattedTime()} Order #${orderNum} authorized: ${buyerName} at discounted ₹${effectivePrice.toLocaleString('en-IN')} (escrow hold pending group settlement)`
+      );
+    } else {
+      addLog(
+        `${getFormattedTime()} Order #${orderNum} authorized: ${buyerName} at retail ₹${effectivePrice.toLocaleString('en-IN')} (escrow hold pending group settlement)`
+      );
+    }
+
+    // Update participant state
+    if (buyerId === 'phoneA') {
+      currentState.phoneStates.phoneA = { status: 'ordered', ordered: true, orderId: newOrder.id, paymentId };
+    } else if (buyerId === 'phoneB') {
+      currentState.phoneStates.phoneB = { status: 'ordered', ordered: true, orderId: newOrder.id, paymentId };
+    } else if (buyerId === 'phoneC') {
+      currentState.phoneStates.phoneC.ordered = true;
+      currentState.phoneStates.phoneC.orderId = newOrder.id;
+      currentState.phoneStates.phoneC.status = 'ordered';
+    } else if (buyerId === 'phoneD') {
+      currentState.phoneStates.phoneD.ordered = true;
+      currentState.phoneStates.phoneD.orderId = newOrder.id;
+      currentState.phoneStates.phoneD.status = 'ordered';
+    }
+
+    // Trigger Nudge Step when an order is authorized (continuous evaluation)
+    if (!currentState.windowClosed && currentState.secondsRemaining > 0) {
+      await checkThresholdAndTriggerCoupon();
+    }
+
+    return newOrder;
+  } finally {
+    if (buyerId !== 'sim') {
+      inFlightAuthorizations.delete(buyerId);
+    }
+  }
 }
 
 let isTargetingInProgress = false;
 
 export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
-  // Guard 1: Never trigger targeting if window is closed or timer elapsed
   if (currentState.windowClosed || currentState.secondsRemaining <= 0) {
     return;
   }
 
-  // Guard 2: Debounce concurrent LLM targeting runs
   if (isTargetingInProgress) {
     return;
   }
 
   const currentCount = currentState.orders.length;
 
-  if (!force && currentCount < 2) {
+  // Need at least 1 order to begin demand aggregation nudge flow
+  if (!force && currentCount < 1) {
     return;
   }
 
-  const gap = currentState.targetQty - currentCount;
-  const projectedQty = currentCount + 1;
-  const discountPct = getTierDiscount(projectedQty, currentState.discountTiers) || 0.02;
-  const discountPctInt = Math.round(discountPct * 100);
+  // Enforce global safety cap on max nudges per window (2 total)
+  if (!force && currentState.nudgeCount >= MAX_NUDGES_PER_WINDOW) {
+    return;
+  }
+
+  // Determine nearest milestone target:
+  // Case 1: Below lower anchor (e.g. 1 unit in escrow -> target lower anchor 2 units @ 3% off)
+  // Case 2: At or above lower anchor (e.g. 2 units in escrow -> target mid tier 3 units @ 6.5% off)
+  const isBelowLowerAnchor = currentCount < currentState.minQtyForDiscount;
+  let targetMilestoneQty: number;
+  let dynamicResult: DynamicDiscountResult;
+
+  if (isBelowLowerAnchor) {
+    targetMilestoneQty = currentState.minQtyForDiscount; // 2 units
+    dynamicResult = computeDynamicDiscount(targetMilestoneQty, currentState.discountTiers);
+  } else {
+    targetMilestoneQty = Math.min(currentState.targetQty, currentCount + 1); // e.g. 3 units
+    dynamicResult = computeDynamicDiscount(targetMilestoneQty, currentState.discountTiers);
+  }
+
+  const gap = targetMilestoneQty - currentCount;
+  const discountPct = dynamicResult.discount;
+  const discountPctVal = dynamicResult.discountPct; // e.g. 3 or 6.5
   const discountedPrice = Math.round(currentState.activeProduct.retailPrice * (1 - discountPct));
 
-  // Build candidate pool for LLM targeting
+  // Log volume check and target intent
+  if (isBelowLowerAnchor) {
+    addLog(
+      `${getFormattedTime()} Volume check: ${currentCount}/${currentState.targetQty} units, below lower anchor (${currentState.minQtyForDiscount} units).\n  Gap=${gap}, time remaining=${currentState.secondsRemaining}s. Dispatching nudge toward lower anchor.`
+    );
+    addLog(
+      `${getFormattedTime()} Targeting engine: evaluating candidates for lower-anchor unlock offer (${discountPctVal}% off, ₹${discountedPrice.toLocaleString('en-IN')})...`
+    );
+  } else if (dynamicResult.isInterpolated) {
+    addLog(
+      `${getFormattedTime()} Mid-tier discount computed (deterministic): ${targetMilestoneQty}/${currentState.targetQty} units\n  formula: ${dynamicResult.formulaString}\n  anchors: ${dynamicResult.lowAnchorStr}, ${dynamicResult.highAnchorStr} (seller-defined)`
+    );
+  }
+
+  // Build candidate pool: anyone who has NOT ordered
   const candidates: { userId: string; label: string; searchedAt: string; searchCount: number; isFrequentBuyer: boolean }[] = [];
-  if (!currentState.phoneStates.phoneA.ordered && !currentState.phoneStates.phoneA.couponReceived) {
-    candidates.push({ userId: 'phoneA', label: 'Manual Buyer #1', searchedAt: '3m ago', searchCount: 2, isFrequentBuyer: false });
+
+  if (!currentState.phoneStates.phoneA.ordered) {
+    candidates.push({ userId: 'phoneA', label: 'Buyer A', searchedAt: '30s ago', searchCount: 2, isFrequentBuyer: false });
   }
-  if (!currentState.phoneStates.phoneB.ordered && !currentState.phoneStates.phoneB.couponReceived) {
-    candidates.push({ userId: 'phoneB', label: 'Manual Buyer #2', searchedAt: '5m ago', searchCount: 1, isFrequentBuyer: false });
+  if (!currentState.phoneStates.phoneB.ordered) {
+    candidates.push({ userId: 'phoneB', label: 'Buyer B', searchedAt: '45s ago', searchCount: 2, isFrequentBuyer: false });
   }
-  if (!currentState.phoneStates.phoneD.ordered && !currentState.phoneStates.phoneD.couponReceived) {
+  if (!currentState.phoneStates.phoneD.ordered) {
     candidates.push({ userId: 'phoneD', label: 'Standing-Order Agent', searchedAt: '1m ago', searchCount: 3, isFrequentBuyer: true });
+  }
+  if (!currentState.phoneStates.phoneC.ordered) {
+    candidates.push({ userId: 'phoneC', label: 'Buyer C', searchedAt: '2m ago', searchCount: 2, isFrequentBuyer: false });
   }
 
   if (candidates.length === 0) return;
 
-  // Execute coupon targeting via LLM with deterministic bounding and fallback
   let selectedUserIds: string[] = [];
   let targetingSummary = '';
 
@@ -401,12 +478,11 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
       productId: currentState.activeProduct.id,
       productName: currentState.activeProduct.name,
       gap,
-      maxNudges: 3,
-      maxCouponValue: discountPctInt,
+      maxNudges: 2,
+      maxCouponValue: Math.round(discountPctVal),
       candidates,
     });
 
-    // Guard 3: If window closed while async LLM was thinking, abort immediately!
     if (currentState.windowClosed || currentState.secondsRemaining <= 0) {
       return;
     }
@@ -417,28 +493,25 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
 
     if (targeting.isFallback) {
       addLog(
-        `${getFormattedTime()} ⚠️ LLM targeting fallback active. 🔄 RECOVERY: Deterministic bounded selection engaged.`
-      );
-      addAiLog(
-        `${getFormattedTime()} Failure Recovery: LLM provider unavailable. Gracefully switched to bounded deterministic rule.`
+        `${getFormattedTime()} Targeting fallback: Bounded deterministic selection engaged for ${candidates.map((c) => c.label).join(', ')}.`
       );
     } else {
-      addAiLog(`${getFormattedTime()} 🤖 LLM Coupon Targeting Active (model: ${targeting.modelUsed})`);
-      addAiLog(`${getFormattedTime()} Targeting Summary: "${targetingSummary}"`);
+      addAiLog(`${getFormattedTime()} LLM targeting active (${targeting.modelUsed}): candidate pool evaluated.`);
+      addAiLog(`${getFormattedTime()} Targeting summary: "${targetingSummary}"`);
       for (const sel of targeting.selected) {
-        addAiLog(`${getFormattedTime()} → ${sel.userId}: "${sel.reason}"`);
+        addAiLog(`${getFormattedTime()} -> ${sel.userId}: "${sel.reason}"`);
       }
       addLog(
-        `${getFormattedTime()} 🤖 AI Nudge: LLM (${targeting.modelUsed}) evaluated candidate pool and issued targeted coupon.`
+        `${getFormattedTime()} AI Nudge: LLM (${targeting.modelUsed}) targeted ${selectedUserIds.map((id) => candidates.find((c) => c.userId === id)?.label || id).join(', ')} with ${discountPctVal}% coupon.`
       );
     }
   } catch (err) {
     console.warn('Coupon targeting execution failed, engaging fallback:', err);
-    selectedUserIds = candidates.map((c) => c.userId);
-    targetingSummary = 'Deterministic fallback: all eligible high-intent candidates selected.';
+    selectedUserIds = candidates.slice(0, 2).map((c) => c.userId);
+    targetingSummary = 'Deterministic selection: Targeted candidates to close volume gap.';
     currentState.couponTargetingSummary = targetingSummary;
     addLog(
-      `${getFormattedTime()} ⚠️ LLM targeting unavailable. 🔄 RECOVERY: Deterministic bounded fallback activated.`
+      `${getFormattedTime()} Targeting fallback: Issued targeted coupon to close volume gap.`
     );
   } finally {
     isTargetingInProgress = false;
@@ -446,53 +519,73 @@ export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
 
   const nudgedCandidates: string[] = [];
 
-  // Apply nudges based on targeting selection
-  if (selectedUserIds.includes('phoneA') && !currentState.phoneStates.phoneA.ordered && !currentState.phoneStates.phoneA.couponReceived) {
-    currentState.phoneStates.phoneA.couponReceived = true;
-    currentState.phoneStates.phoneA.couponDetails = {
-      discountPct: discountPctInt,
-      discountedPrice,
-      expiresSeconds: Math.min(currentState.secondsRemaining, 90),
-    };
-    nudgedCandidates.push('Phone A (Buyer #1)');
-  }
+  // Increment total nudge count
+  currentState.nudgeCount += 1;
 
-  if (selectedUserIds.includes('phoneB') && !currentState.phoneStates.phoneB.ordered && !currentState.phoneStates.phoneB.couponReceived) {
-    currentState.phoneStates.phoneB.couponReceived = true;
-    currentState.phoneStates.phoneB.couponDetails = {
-      discountPct: discountPctInt,
-      discountedPrice,
-      expiresSeconds: Math.min(currentState.secondsRemaining, 90),
-    };
-    nudgedCandidates.push('Phone B (Buyer #2)');
-  }
-
-  if (selectedUserIds.includes('phoneD') && !currentState.phoneStates.phoneD.ordered && !currentState.phoneStates.phoneD.couponReceived) {
-    currentState.phoneStates.phoneD.isWatching = true;
-    currentState.phoneStates.phoneD.couponReceived = true;
-    currentState.phoneStates.phoneD.couponDetails = {
-      discountPct: discountPctInt,
-      discountedPrice,
-      expiresSeconds: Math.min(currentState.secondsRemaining, 90),
-    };
-    nudgedCandidates.push('Phone D (Standing-Order Agent)');
+  for (const userId of selectedUserIds) {
+    if (userId === 'phoneA' && !currentState.phoneStates.phoneA.ordered) {
+      currentState.phoneStates.phoneA.couponReceived = true;
+      currentState.phoneStates.phoneA.couponDetails = {
+        discountPct: discountPctVal,
+        discountedPrice,
+        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
+      };
+      nudgedCandidates.push('Buyer A');
+    } else if (userId === 'phoneB' && !currentState.phoneStates.phoneB.ordered) {
+      currentState.phoneStates.phoneB.couponReceived = true;
+      currentState.phoneStates.phoneB.couponDetails = {
+        discountPct: discountPctVal,
+        discountedPrice,
+        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
+      };
+      nudgedCandidates.push('Buyer B');
+    } else if (userId === 'phoneC' && !currentState.phoneStates.phoneC.ordered) {
+      currentState.phoneStates.phoneC.couponReceived = true;
+      currentState.phoneStates.phoneC.status = 'nudged';
+      currentState.phoneStates.phoneC.couponDetails = {
+        discountPct: discountPctVal,
+        discountedPrice,
+        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
+      };
+      nudgedCandidates.push('Buyer C');
+    } else if (userId === 'phoneD' && !currentState.phoneStates.phoneD.ordered) {
+      currentState.phoneStates.phoneD.couponReceived = true;
+      currentState.phoneStates.phoneD.status = 'logic_awaiting';
+      currentState.phoneStates.phoneD.couponDetails = {
+        discountPct: discountPctVal,
+        discountedPrice,
+        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
+      };
+      nudgedCandidates.push('Standing-Order Agent');
+    }
   }
 
   if (nudgedCandidates.length > 0) {
     addLog(
-      `${getFormattedTime()} Threshold Analyzer: ${currentCount}/${currentState.targetQty} orders received (gap=${gap}). Discovered ${nudgedCandidates.length} high-intent searchers.`
-    );
-    addLog(
-      `${getFormattedTime()} Dynamic Nudge Triggered -> Targeted: ${nudgedCandidates.join(', ')} with ${discountPctInt}% OFF unlock (₹${discountedPrice.toLocaleString('en-IN')}).`
+      `${getFormattedTime()} Threshold check: ${currentCount}/${currentState.targetQty} units locked (nudge ${currentState.nudgeCount}/${MAX_NUDGES_PER_WINDOW}). Dispatched ${discountPctVal}% unlock offer (₹${discountedPrice.toLocaleString('en-IN')}) to: ${nudgedCandidates.join(', ')}.`
     );
   }
 
-  // Auto-authorize Phone D if time remaining <= 30s
-  if (currentState.secondsRemaining <= 30 && currentState.phoneStates.phoneD.couponReceived && !currentState.phoneStates.phoneD.ordered) {
-    autoAuthorizePhoneDIfNeeded();
+  // If Standing-Order Agent received a coupon, evaluate condition:
+  if (currentState.phoneStates.phoneD.couponReceived && !currentState.phoneStates.phoneD.ordered) {
+    if (discountedPrice <= currentState.phoneStates.phoneD.targetMaxPrice) {
+      if (pendingPhoneDTimeout) {
+        clearTimeout(pendingPhoneDTimeout);
+        pendingPhoneDTimeout = null;
+      }
+      pendingPhoneDTimeout = setTimeout(async () => {
+        pendingPhoneDTimeout = null;
+        if (!currentState.windowClosed && !currentState.phoneStates.phoneD.ordered) {
+          await autoAuthorizePhoneDIfNeeded();
+        }
+      }, 400);
+    } else {
+      addLog(
+        `${getFormattedTime()} Standing-Order Agent evaluated offer: ₹${discountedPrice.toLocaleString('en-IN')} > target ceiling (₹${currentState.phoneStates.phoneD.targetMaxPrice.toLocaleString('en-IN')}). Standing by.`
+      );
+    }
   }
 }
-
 
 export async function addSimulatedOrders(count: number) {
   for (let i = 0; i < count; i++) {
@@ -510,63 +603,43 @@ export async function closeWindowEngine() {
   currentState.secondsRemaining = 0;
   isTargetingInProgress = false;
 
-  // Clear unredeemed coupons on non-ordering phones so they don't show active discounts post-close
-  if (!currentState.phoneStates.phoneA.ordered) {
-    currentState.phoneStates.phoneA.couponReceived = false;
-    currentState.phoneStates.phoneA.couponDetails = undefined;
-    if (!currentState.phoneStates.phoneA.notification) {
-      currentState.phoneStates.phoneA.notification = 'Window closed — Deal ended.';
-    }
-  }
-  if (!currentState.phoneStates.phoneB.ordered) {
-    currentState.phoneStates.phoneB.couponReceived = false;
-    currentState.phoneStates.phoneB.couponDetails = undefined;
-    if (!currentState.phoneStates.phoneB.notification) {
-      currentState.phoneStates.phoneB.notification = 'Window closed — Deal ended.';
-    }
-  }
-  if (!currentState.phoneStates.phoneD.ordered) {
-    currentState.phoneStates.phoneD.couponReceived = false;
-    currentState.phoneStates.phoneD.couponDetails = undefined;
-    currentState.phoneStates.phoneD.isWatching = false;
-    if (!currentState.phoneStates.phoneD.notification) {
-      currentState.phoneStates.phoneD.notification = 'Window closed — Target price was not reached.';
-    }
+  // Clear unredeemed coupon on Buyer C (deliberate gap)
+  if (!currentState.phoneStates.phoneC.ordered) {
+    currentState.phoneStates.phoneC.couponReceived = false;
+    currentState.phoneStates.phoneC.couponDetails = undefined;
+    currentState.phoneStates.phoneC.status = 'idle';
+    currentState.phoneStates.phoneC.notification = 'Window closed: Offer expired without purchase.';
   }
 
   const finalCount = currentState.orders.length;
   const product = currentState.activeProduct;
-  addLog(`${getFormattedTime()} Window closed. Final aggregation volume: ${finalCount}/${currentState.targetQty} orders`);
+  addLog(`${getFormattedTime()} Aggregation window closed. Final count: ${finalCount}/${currentState.targetQty} units.`);
 
-  const tierDiscount = getTierDiscount(finalCount, currentState.discountTiers);
+  const dynamicResult = computeDynamicDiscount(finalCount, currentState.discountTiers);
+  const tierDiscount = dynamicResult.discount;
+  const discountPctVal = dynamicResult.discountPct;
   const hitMaxTier = finalCount >= currentState.targetQty;
   const hasAnyDiscount = tierDiscount > 0;
 
   if (finalCount > 0 && hasAnyDiscount) {
-    // --- DISCOUNT PATH (Full Threshold OR Dynamic Partial Recovery) ---
-    const discountPctInt = Math.round(tierDiscount * 100);
     const finalCapturedUnitPrice = Math.round(product.retailPrice * (1 - tierDiscount));
 
-    if (hitMaxTier) {
-      // Full threshold achieved
+    if (dynamicResult.isInterpolated) {
       addLog(
-        `${getFormattedTime()} ✅ Wholesale threshold FULLY MET: ${discountPctInt}% volume discount (Settlement Unit Price: ₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`
-      );
-    } else {
-      // --- GRACEFUL RECOVERY: Partial threshold → dynamic discount ---
-      const maxTierPct = Math.round(Math.max(...Object.values(currentState.discountTiers)) * 100);
-      addLog(
-        `${getFormattedTime()} ⚠️ Full wholesale threshold not reached (${finalCount}/${currentState.targetQty} units — target was ${maxTierPct}% OFF).`
-      );
-      addLog(
-        `${getFormattedTime()} 🔄 RECOVERY: Dynamic Discount Activated — best available tier applied: ${discountPctInt}% OFF at ₹${finalCapturedUnitPrice.toLocaleString('en-IN')}/unit. No buyer left at full retail.`
+        `${getFormattedTime()} Mid-tier discount computed (deterministic): ${finalCount}/${currentState.targetQty} units\n  formula: ${dynamicResult.formulaString}\n  anchors: ${dynamicResult.lowAnchorStr}, ${dynamicResult.highAnchorStr} (seller-defined)`
       );
       addAiLog(
-        `${getFormattedTime()} Failure Recovery: Target ${currentState.targetQty} units not met (actual: ${finalCount}). Agent activated dynamic discount fallback → ${discountPctInt}% tier applied. Zero buyer disappointment.`
+        `${getFormattedTime()} Settlement: Window closed at ${finalCount}/${currentState.targetQty}. Applied deterministic ${discountPctVal}% discount tier (${dynamicResult.formulaString}). Escrow equalized.`
+      );
+    } else if (hitMaxTier) {
+      addLog(
+        `${getFormattedTime()} Top wholesale tier reached (${finalCount}/${currentState.targetQty} units): ${discountPctVal}% discount applied (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}/unit).`
       );
     }
 
-    addLog(`${getFormattedTime()} Executing Razorpay escrow capture & automated refunds...`);
+    addLog(`${getFormattedTime()} Executing Razorpay escrow capture and automated equalized refunds...`);
+
+    let totalRefundsIssued = 0;
 
     for (const order of currentState.orders) {
       if (order.isDiscountedOnAuth) {
@@ -577,10 +650,11 @@ export async function closeWindowEngine() {
         order.status = 'captured';
 
         addLog(
-          `${getFormattedTime()} Escrow Capture: ${order.buyerName} -> ₹${finalPrice.toLocaleString('en-IN')} (locked at group tier ${discountPctInt}% off)`
+          `${getFormattedTime()} Escrow captured: ${order.buyerName} -> ₹${finalPrice.toLocaleString('en-IN')} (locked at group tier ${discountPctVal}% off)`
         );
       } else {
         const refundDiff = order.retailPrice - finalCapturedUnitPrice;
+        totalRefundsIssued += refundDiff;
 
         await captureRazorpayPayment(order.paymentId, finalCapturedUnitPrice * 100, currentState.razorpayKeys);
         if (refundDiff > 0) {
@@ -592,34 +666,29 @@ export async function closeWindowEngine() {
         order.status = 'refunded';
 
         addLog(
-          `${getFormattedTime()} Escrow Capture: ${order.buyerName} -> ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (instant refund ₹${refundDiff.toLocaleString('en-IN')} credited back)`
+          `${getFormattedTime()} [Razorpay Escrow] Refund executed: ₹${refundDiff.toLocaleString('en-IN')} credited to ${order.buyerName} (original auth ₹${order.retailPrice.toLocaleString('en-IN')} → final ₹${finalCapturedUnitPrice.toLocaleString('en-IN')})`
         );
       }
     }
 
-    const totalPayout = finalCount * finalCapturedUnitPrice;
-    addLog(
-      `${getFormattedTime()} ${hitMaxTier ? 'Bulk wholesale' : 'Dynamic discount'} purchase finalized: ${finalCount} units @ ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (Seller Total Payout: ₹${totalPayout.toLocaleString('en-IN')})`
-    );
-
-    // Dynamic update for Phone D details if ordered
-    if (currentState.phoneStates.phoneD.ordered && currentState.phoneStates.phoneD.couponDetails) {
-      currentState.phoneStates.phoneD.couponDetails.discountPct = discountPctInt;
-      currentState.phoneStates.phoneD.couponDetails.discountedPrice = finalCapturedUnitPrice;
+    if (totalRefundsIssued > 0) {
+      addLog(
+        `${getFormattedTime()} [Notification] Dispatched refund confirmation & equalized receipts: ₹${totalRefundsIssued.toLocaleString('en-IN')} total returned to early buyers.`
+      );
     }
 
+    const totalPayout = finalCount * finalCapturedUnitPrice;
+    addLog(
+      `${getFormattedTime()} Final settlement complete: ${finalCount} units @ ₹${finalCapturedUnitPrice.toLocaleString('en-IN')} (seller net payout: ₹${totalPayout.toLocaleString('en-IN')})`
+    );
+
     const refundDiff = product.retailPrice - finalCapturedUnitPrice;
-    const refundMsg = hitMaxTier
-      ? `Group discount of ${discountPctInt}% achieved! ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`
-      : `Dynamic recovery: ${discountPctInt}% group discount applied (target not fully met). ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`;
+    const refundMsg = `Settlement complete: ${discountPctVal}% group discount applied. ₹${refundDiff.toLocaleString('en-IN')} refunded to your account.`;
 
     if (currentState.phoneStates.phoneA.ordered) currentState.phoneStates.phoneA.notification = refundMsg;
     if (currentState.phoneStates.phoneB.ordered) currentState.phoneStates.phoneB.notification = refundMsg;
-    if (currentState.phoneStates.phoneC.ordered) currentState.phoneStates.phoneC.notification = refundMsg;
     if (currentState.phoneStates.phoneD.ordered) {
-      currentState.phoneStates.phoneD.notification = hitMaxTier
-        ? `Standing order executed! Group tier locked at ${discountPctInt}% off (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`
-        : `Standing order executed! Dynamic recovery tier: ${discountPctInt}% off (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`;
+      currentState.phoneStates.phoneD.notification = `Standing order completed at ${discountPctVal}% group discount (₹${finalCapturedUnitPrice.toLocaleString('en-IN')}).`;
     }
 
     currentState.sellerState = {
@@ -628,21 +697,11 @@ export async function closeWindowEngine() {
       totalUnits: finalCount,
       unitPrice: finalCapturedUnitPrice,
       totalPayout,
-      tierApplied: hitMaxTier
-        ? `${discountPctInt}% Off (Full Threshold)`
-        : `${discountPctInt}% Off (Dynamic Recovery — ${finalCount}/${currentState.targetQty} units)`,
+      tierApplied: `${discountPctVal}% off (${finalCount}/${currentState.targetQty} dynamic tier)`,
     };
   } else if (finalCount > 0) {
-    // --- MINIMUM VOLUME: Below any discount tier, but orders exist ---
-    // Still fulfill orders — no buyer is abandoned
     addLog(
-      `${getFormattedTime()} ⚠️ Volume below minimum discount tier (${finalCount}/${currentState.minQtyForDiscount} required for any discount).`
-    );
-    addLog(
-      `${getFormattedTime()} 🔄 RECOVERY: All buyer orders preserved and fulfilled at retail price. No orders cancelled.`
-    );
-    addAiLog(
-      `${getFormattedTime()} Failure Recovery: ${finalCount} orders below min discount threshold (${currentState.minQtyForDiscount}). All orders preserved at retail — zero buyer abandonment.`
+      `${getFormattedTime()} Volume below discount threshold (${finalCount}/${currentState.minQtyForDiscount}). Orders fulfilled at standard retail.`
     );
 
     for (const order of currentState.orders) {
@@ -650,33 +709,18 @@ export async function closeWindowEngine() {
       order.capturedPrice = order.retailPrice;
       order.refundAmount = 0;
       order.status = 'captured';
-
-      addLog(
-        `${getFormattedTime()} Escrow Capture: ${order.buyerName} -> ₹${order.retailPrice.toLocaleString('en-IN')} (retail — order preserved)`
-      );
     }
 
     const totalPayout = finalCount * product.retailPrice;
-    addLog(
-      `${getFormattedTime()} Orders fulfilled: ${finalCount} units @ ₹${product.retailPrice.toLocaleString('en-IN')} (Seller Total: ₹${totalPayout.toLocaleString('en-IN')})`
-    );
-
-    const recoveryMsg = `Your order is confirmed at ₹${product.retailPrice.toLocaleString('en-IN')}. Group volume was below discount threshold — your order was preserved (not cancelled).`;
-    if (currentState.phoneStates.phoneA.ordered) currentState.phoneStates.phoneA.notification = recoveryMsg;
-    if (currentState.phoneStates.phoneB.ordered) currentState.phoneStates.phoneB.notification = recoveryMsg;
-    if (currentState.phoneStates.phoneC.ordered) currentState.phoneStates.phoneC.notification = recoveryMsg;
-    if (currentState.phoneStates.phoneD.ordered) currentState.phoneStates.phoneD.notification = recoveryMsg;
-
     currentState.sellerState = {
       totalOrdersReceived: finalCount,
       settlementStatus: 'completed',
       totalUnits: finalCount,
       unitPrice: product.retailPrice,
       totalPayout,
-      tierApplied: `0% Off (Below Min Tier — Orders Preserved)`,
+      tierApplied: 'Standard retail (0% off)',
     };
   } else {
-    // No orders at all
     addLog(`${getFormattedTime()} Window closed with zero orders. No settlement required.`);
     currentState.sellerState = {
       totalOrdersReceived: 0,
@@ -691,8 +735,17 @@ export function resetState() {
   const currentProduct = currentState.activeProduct || DEFAULT_PRODUCT;
   const currentKeys = currentState.razorpayKeys;
 
+  isTargetingInProgress = false;
+  inFlightAuthorizations.clear();
+  if (pendingPhoneDTimeout) {
+    clearTimeout(pendingPhoneDTimeout);
+    pendingPhoneDTimeout = null;
+  }
+
   currentState = JSON.parse(JSON.stringify(initialState));
   currentState.activeProduct = currentProduct;
+  currentState.phoneStates.phoneD.instruction = `Buy ${currentProduct.name} if price drops to ₹75,000 or below`;
+  currentState.phoneStates.phoneD.targetMaxPrice = Math.round(currentProduct.retailPrice * 0.94);
   currentState.razorpayKeys = currentKeys;
   currentState.logs = [
     `${getFormattedTime()} System reset complete. Ready for new demand aggregation cycle (${currentProduct.name}).`,
@@ -700,13 +753,15 @@ export function resetState() {
   currentState.aiReasoningLog = [];
   currentState.lastParseResult = null;
   currentState.couponTargetingSummary = null;
+  currentState.nudgeCount = 0;
   return currentState;
 }
 
 export function setPhoneDWatching(prompt: string) {
-  currentState.phoneStates.phoneD.promptText = prompt;
-  currentState.phoneStates.phoneD.isWatching = true;
-  addLog(`${getFormattedTime()} Standing-Order Agent active: monitoring price drops on ${currentState.activeProduct.name}...`);
+  currentState.phoneStates.phoneD.instruction = prompt;
+  currentState.phoneStates.phoneD.status = 'watching';
+  addLog(`${getFormattedTime()} Standing-Order Agent active: watching for price drops on ${currentState.activeProduct.name}...`);
   checkThresholdAndTriggerCoupon(false);
 }
+
 

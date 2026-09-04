@@ -1,19 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import {
-  Sparkles,
-  ArrowRight,
-  ArrowLeft,
-  X,
-  ShieldCheck,
-  Zap,
-  Users,
-  Cpu,
-  Building2,
-  CheckCircle2,
-  HelpCircle,
-} from 'lucide-react';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -23,7 +10,6 @@ interface OnboardingModalProps {
 export default function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
   const [currentScreen, setCurrentScreen] = useState(1);
 
-  // Reset to screen 1 when reopened
   useEffect(() => {
     if (isOpen) {
       setCurrentScreen(1);
@@ -58,212 +44,135 @@ export default function OnboardingModal({ isOpen, onClose }: OnboardingModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl bg-[#0E1420] border border-[#1E293B] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Top Header Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1E293B] bg-[#111827]/50">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-blue-600/20 border border-blue-500/40 flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-blue-400" />
-            </div>
-            <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
-              Quick Orientation Guide
-            </span>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="relative w-full max-w-lg bg-panel border border-hairline rounded-lg shadow-xl overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-hairline bg-paper">
+          <span className="text-xs font-semibold text-ink uppercase tracking-wider">
+            Orientation guide
+          </span>
 
           <div className="flex items-center gap-3">
-            {/* Step indicator dots */}
             <div className="flex items-center gap-1.5">
               {[1, 2, 3, 4].map((step) => (
                 <div
                   key={step}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                  className={`h-1.5 rounded-full transition-all duration-200 ${
                     step === currentScreen
-                      ? 'w-6 bg-blue-500'
+                      ? 'w-6 bg-navy'
                       : step < currentScreen
-                      ? 'w-2 bg-emerald-500/70'
-                      : 'w-2 bg-slate-700'
+                      ? 'w-2 bg-ledgergreen'
+                      : 'w-2 bg-[#D5D1C8]'
                   }`}
                 />
               ))}
             </div>
 
             <button
+              type="button"
               onClick={handleComplete}
-              className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800/60 transition"
-              title="Skip orientation"
+              className="text-muted hover:text-ink text-sm p-1"
             >
-              <X className="w-4 h-4" />
+              ✕
             </button>
           </div>
         </div>
 
-        {/* Modal Body: 4 Screens */}
-        <div className="px-6 py-6 min-h-[260px] flex flex-col justify-center">
-          {/* ======================================================== */}
-          {/* SCREEN 1: The Problem */}
-          {/* ======================================================== */}
+        {/* Body */}
+        <div className="px-6 py-6 min-h-[240px] flex flex-col justify-center">
           {currentScreen === 1 && (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-950/60 border border-rose-800/60 text-rose-300 text-xs font-semibold">
-                <span className="w-2 h-2 rounded-full bg-rose-400" /> Step 1 of 4 — The Problem
-              </div>
-              <h3 className="text-xl font-bold text-white tracking-tight leading-snug">
-                The Retail Deadweight Loss
+            <div className="space-y-3">
+              <span className="text-xs font-mono text-oxblood">Step 1 of 4: The problem</span>
+              <h3 className="font-serif text-xl font-bold text-ink">
+                The retail deadweight loss
               </h3>
-              <div className="bg-[#151E2E] border border-[#1E293B] p-4 rounded-xl">
-                <p className="text-sm text-slate-200 leading-relaxed font-medium">
-                  &ldquo;Ten buyers can order the same product in the same week and each still pay full retail — one order at a time. Wholesale pricing exists for that volume. Nothing at checkout ever notices.&rdquo;
-                </p>
-              </div>
-              <p className="text-xs text-slate-400">
-                Atomic purchases leave money on the table for buyers and leave volume commitments unorganized for merchants.
+              <p className="text-xs text-muted leading-relaxed">
+                Multiple buyers can order the exact same item within the same window and each pay full retail — one order at a time. Tiered wholesale pricing exists for volume, but isolated checkouts leave those savings uncaptured.
               </p>
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* SCREEN 2: The Idea */}
-          {/* ======================================================== */}
           {currentScreen === 2 && (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-950/60 border border-blue-800/60 text-blue-300 text-xs font-semibold">
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" /> Step 2 of 4 — The Idea
-              </div>
-              <h3 className="text-xl font-bold text-white tracking-tight leading-snug">
-                Autonomous Escrow Demand Aggregation
+            <div className="space-y-3">
+              <span className="text-xs font-mono text-ledgergreen">Step 2 of 4: The solution</span>
+              <h3 className="font-serif text-xl font-bold text-ink">
+                Autonomous escrow demand aggregation
               </h3>
-              <div className="bg-[#151E2E] border border-[#1E293B] p-4 rounded-xl">
-                <p className="text-sm text-slate-200 leading-relaxed font-medium">
-                  &ldquo;This agent authorizes each buyer&apos;s payment, holds a short window, and captures everyone at the best discount tier the group actually earns together — automatically.&rdquo;
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
-                <div className="bg-[#090D16] p-2.5 rounded-lg border border-[#1E293B] flex items-center gap-2">
-                  <span className="text-blue-400 font-bold">🔒 Escrow Hold</span>
-                  <span>Zero permanent debits upfront</span>
-                </div>
-                <div className="bg-[#090D16] p-2.5 rounded-lg border border-[#1E293B] flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">💸 Auto Refund</span>
-                  <span>Direct price equalization</span>
-                </div>
-              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                This agent pre-authorizes buyer payments into escrow, aggregates group demand over a short window, and captures everyone at the earned volume tier — automatically equalizing prices with instant refunds.
+              </p>
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* SCREEN 3: What You're About to Watch */}
-          {/* ======================================================== */}
           {currentScreen === 3 && (
-            <div className="space-y-3.5 animate-in fade-in duration-200">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-950/60 border border-indigo-800/60 text-indigo-300 text-xs font-semibold">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Step 3 of 4 — What You&apos;re About to Watch
-              </div>
-              <h3 className="text-lg font-bold text-white tracking-tight">
-                The 3-Panel Operational Command Center
+            <div className="space-y-3">
+              <span className="text-xs font-mono text-navy">Step 3 of 4: The 5-participant flow</span>
+              <h3 className="font-serif text-xl font-bold text-ink">
+                How this run is structured
               </h3>
-              <div className="space-y-2 text-xs">
-                {/* Left */}
-                <div className="bg-[#151E2E] border border-blue-900/40 p-2.5 rounded-xl flex items-start gap-2.5">
-                  <div className="p-1 rounded bg-blue-950 text-blue-400 border border-blue-800/50 mt-0.5 shrink-0">
-                    <Users className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <span className="font-bold text-blue-300">Left Panel (Buyer Simulation):</span>{' '}
-                    <span className="text-slate-300">
-                      Four different buyers, including an AI agent that buys autonomously.
-                    </span>
-                  </div>
-                </div>
-                {/* Center */}
-                <div className="bg-[#151E2E] border border-indigo-900/40 p-2.5 rounded-xl flex items-start gap-2.5">
-                  <div className="p-1 rounded bg-indigo-950 text-indigo-400 border border-indigo-800/50 mt-0.5 shrink-0">
-                    <Cpu className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <span className="font-bold text-indigo-300">Center Panel (Decision Engine):</span>{' '}
-                    <span className="text-slate-300">
-                      The decision engine — live counter, timer, and a full audit trail of every choice it makes.
-                    </span>
-                  </div>
-                </div>
-                {/* Right */}
-                <div className="bg-[#151E2E] border border-emerald-900/40 p-2.5 rounded-xl flex items-start gap-2.5">
-                  <div className="p-1 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 mt-0.5 shrink-0">
-                    <Building2 className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <span className="font-bold text-emerald-300">Right Panel (Seller Dashboard):</span>{' '}
-                    <span className="text-slate-300">
-                      The seller&apos;s payout once the group deal closes.
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <ul className="text-xs text-muted space-y-1.5 list-disc pl-4">
+                <li><strong>Buyer A & Buyer B:</strong> Manual retail buyers (triggering the aggregation window).</li>
+                <li><strong>Standing-Order Agent:</strong> Auto-buys when a targeted 6% price drop is issued.</li>
+                <li><strong>Buyer C:</strong> Receives the nudge coupon but does not convert (deliberate 3/4 gap).</li>
+                <li><strong>Control shopper:</strong> Unrelated search to prove bounded targeting.</li>
+              </ul>
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* SCREEN 4: CTA */}
-          {/* ======================================================== */}
           {currentScreen === 4 && (
-            <div className="space-y-4 text-center py-2 animate-in fade-in duration-200">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center mx-auto shadow-lg shadow-blue-500/20">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-white tracking-tight">
-                  Ready? Watch it happen.
-                </h3>
-                <p className="text-xs text-slate-300 max-w-sm mx-auto mt-2">
-                  Place an order, trigger an AI targeted nudge, or simulate volume to see wholesale settlement execute in real time.
-                </p>
-              </div>
-
+            <div className="space-y-3 text-center py-2">
+              <h3 className="font-serif text-2xl font-bold text-ink">
+                Ready to watch the ledger update?
+              </h3>
+              <p className="text-xs text-muted max-w-sm mx-auto">
+                Place orders, trigger threshold checks, or fast-forward timer to inspect settlement.
+              </p>
               <div className="pt-2">
                 <button
+                  type="button"
                   onClick={handleComplete}
-                  className="w-full py-3 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2"
+                  className="w-full py-2.5 bg-navy hover:bg-[#1B273A] text-white text-xs font-medium rounded transition"
                 >
-                  <span>Launch Live Run</span>
-                  <ArrowRight className="w-4 h-4" />
+                  Start live operations console
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Modal Bottom Footer Navigation */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#1E293B] bg-[#111827]/60">
+        {/* Footer Navigation */}
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-hairline bg-paper text-xs">
           <div>
             {currentScreen > 1 ? (
               <button
+                type="button"
                 onClick={handleBack}
-                className="text-xs text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 transition"
+                className="text-muted hover:text-ink font-medium"
               >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back
+                ← Back
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleComplete}
-                className="text-xs text-slate-500 hover:text-slate-300 font-medium transition"
+                className="text-muted hover:text-ink"
               >
-                Skip intro
+                Skip guide
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-500 font-mono">
-              {currentScreen} of {totalScreens}
+          <div className="flex items-center gap-3">
+            <span className="text-muted font-mono text-[11px]">
+              {currentScreen} / {totalScreens}
             </span>
-
             {currentScreen < totalScreens && (
               <button
+                type="button"
                 onClick={handleNext}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center gap-1.5 transition"
+                className="px-3 py-1 bg-navy text-white text-xs font-medium rounded"
               >
-                Next <ArrowRight className="w-3.5 h-3.5" />
+                Next →
               </button>
             )}
           </div>
@@ -272,3 +181,4 @@ export default function OnboardingModal({ isOpen, onClose }: OnboardingModalProp
     </div>
   );
 }
+

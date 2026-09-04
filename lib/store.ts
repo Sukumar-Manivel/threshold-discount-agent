@@ -3,7 +3,9 @@ import {
   DEFAULT_DISCOUNT_TIERS,
   MAX_WINDOW_SECONDS,
   MIN_QTY_FOR_ANY_DISCOUNT,
-  MAX_NUDGES_PER_WINDOW,
+  FINAL_STRETCH_PCT,
+  MAX_NOTIFICATIONS_PER_BUYER,
+  RECHECK_INTERVAL_SECONDS,
   PRODUCT_CATALOG,
   Product,
   TARGET_QTY,
@@ -16,7 +18,11 @@ import {
   createRazorpayOrder,
   refundRazorpayPayment,
 } from './razorpay';
-import { executeCouponTargeting } from './targeting';
+import {
+  evaluateEqualOpportunityBroadcast,
+  CandidateUser,
+  isWindowInFinalStretch,
+} from './targeting';
 
 export interface OrderItem {
   id: string;
@@ -44,6 +50,8 @@ export interface ParticipantState {
     notification?: string;
     couponReceived?: boolean;
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
+    notificationCount: number;
+    lastNotifiedDiscountPct?: number;
   };
   phoneB: {
     status: 'idle' | 'searching' | 'ordered';
@@ -53,6 +61,8 @@ export interface ParticipantState {
     notification?: string;
     couponReceived?: boolean;
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
+    notificationCount: number;
+    lastNotifiedDiscountPct?: number;
   };
   phoneC: {
     status: 'idle' | 'searching' | 'nudged' | 'ordered';
@@ -61,6 +71,8 @@ export interface ParticipantState {
     notification?: string;
     couponReceived: boolean;
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
+    notificationCount: number;
+    lastNotifiedDiscountPct?: number;
   };
   phoneD: {
     instruction: string;
@@ -71,6 +83,8 @@ export interface ParticipantState {
     notification?: string;
     couponReceived: boolean;
     couponDetails?: { discountPct: number; discountedPrice: number; expiresSeconds: number };
+    notificationCount: number;
+    lastNotifiedDiscountPct?: number;
   };
   phoneE: {
     searchQuery: string;
@@ -113,6 +127,8 @@ export interface AppState {
   windowClosed: boolean;
   secondsRemaining: number;
   startTime: number | null;
+  finalStretchEntered: boolean;
+  lastBroadcastCheckRemaining: number | null;
   logs: string[];
   aiReasoningLog: string[];
   phoneStates: ParticipantState;
@@ -144,21 +160,24 @@ const initialState: AppState = {
   windowClosed: false,
   secondsRemaining: MAX_WINDOW_SECONDS,
   startTime: null,
+  finalStretchEntered: false,
+  lastBroadcastCheckRemaining: null,
   logs: [
     `${getFormattedTime()} Decision engine initialized. Tracking aggregate demand for ${DEFAULT_PRODUCT.name} (${DEFAULT_PRODUCT.sku}).`,
   ],
   aiReasoningLog: [],
   nudgeCount: 0,
   phoneStates: {
-    phoneA: { status: 'searching', ordered: false },
-    phoneB: { status: 'searching', ordered: false },
-    phoneC: { status: 'searching', ordered: false, couponReceived: false },
+    phoneA: { status: 'searching', ordered: false, notificationCount: 0 },
+    phoneB: { status: 'searching', ordered: false, notificationCount: 0 },
+    phoneC: { status: 'searching', ordered: false, couponReceived: false, notificationCount: 0 },
     phoneD: {
       instruction: 'Buy iPhone 17 Pro if price drops to ₹75,000 or below',
       targetMaxPrice: 75500,
       status: 'idle',
       ordered: false,
       couponReceived: false,
+      notificationCount: 0,
     },
     phoneE: {
       searchQuery: 'wireless earbuds',
@@ -250,6 +269,8 @@ export function getState(): AppState {
 
     if (remaining === 0) {
       closeWindowEngine();
+    } else {
+      evaluateAndDispatchBroadcast(false, true);
     }
   }
   return currentState;
@@ -368,9 +389,9 @@ export async function authorizeBuyerOrder(
 
     // Update participant state
     if (buyerId === 'phoneA') {
-      currentState.phoneStates.phoneA = { status: 'ordered', ordered: true, orderId: newOrder.id, paymentId };
+      currentState.phoneStates.phoneA = { ...currentState.phoneStates.phoneA, status: 'ordered', ordered: true, orderId: newOrder.id, paymentId };
     } else if (buyerId === 'phoneB') {
-      currentState.phoneStates.phoneB = { status: 'ordered', ordered: true, orderId: newOrder.id, paymentId };
+      currentState.phoneStates.phoneB = { ...currentState.phoneStates.phoneB, status: 'ordered', ordered: true, orderId: newOrder.id, paymentId };
     } else if (buyerId === 'phoneC') {
       currentState.phoneStates.phoneC.ordered = true;
       currentState.phoneStates.phoneC.orderId = newOrder.id;
@@ -381,9 +402,9 @@ export async function authorizeBuyerOrder(
       currentState.phoneStates.phoneD.status = 'ordered';
     }
 
-    // Trigger Nudge Step when an order is authorized (continuous evaluation)
+    // Continuous evaluation of threshold / broadcast
     if (!currentState.windowClosed && currentState.secondsRemaining > 0) {
-      await checkThresholdAndTriggerCoupon();
+      await evaluateAndDispatchBroadcast();
     }
 
     return newOrder;
@@ -394,198 +415,169 @@ export async function authorizeBuyerOrder(
   }
 }
 
-let isTargetingInProgress = false;
-
-export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
+export async function evaluateAndDispatchBroadcast(force: boolean = false, isTick: boolean = false) {
   if (currentState.windowClosed || currentState.secondsRemaining <= 0) {
     return;
   }
 
-  if (isTargetingInProgress) {
+  const inFinalStretch = isWindowInFinalStretch(currentState.secondsRemaining, MAX_WINDOW_SECONDS);
+
+  // If not in final stretch and not forced:
+  if (!inFinalStretch && !force) {
     return;
   }
 
   const currentCount = currentState.orders.length;
-
-  // Need at least 1 order to begin demand aggregation nudge flow
+  // If 0 orders, no volume to aggregate
   if (!force && currentCount < 1) {
     return;
   }
 
-  // Enforce global safety cap on max nudges per window (2 total)
-  if (!force && currentState.nudgeCount >= MAX_NUDGES_PER_WINDOW) {
-    return;
+  // Build full candidate list matching SKU
+  const candidates: CandidateUser[] = [
+    {
+      userId: 'phoneA',
+      label: 'Buyer A',
+      searchedAt: '30s ago',
+      searchCount: 2,
+      isFrequentBuyer: false,
+      searchedSku: currentState.activeProduct.sku,
+      ordered: currentState.phoneStates.phoneA.ordered,
+      notificationCount: currentState.phoneStates.phoneA.notificationCount || 0,
+      lastNotifiedDiscountPct: currentState.phoneStates.phoneA.lastNotifiedDiscountPct,
+    },
+    {
+      userId: 'phoneB',
+      label: 'Buyer B',
+      searchedAt: '45s ago',
+      searchCount: 2,
+      isFrequentBuyer: false,
+      searchedSku: currentState.activeProduct.sku,
+      ordered: currentState.phoneStates.phoneB.ordered,
+      notificationCount: currentState.phoneStates.phoneB.notificationCount || 0,
+      lastNotifiedDiscountPct: currentState.phoneStates.phoneB.lastNotifiedDiscountPct,
+    },
+    {
+      userId: 'phoneD',
+      label: 'Standing-Order Agent',
+      searchedAt: '1m ago',
+      searchCount: 3,
+      isFrequentBuyer: true,
+      searchedSku: currentState.activeProduct.sku,
+      ordered: currentState.phoneStates.phoneD.ordered,
+      notificationCount: currentState.phoneStates.phoneD.notificationCount || 0,
+      lastNotifiedDiscountPct: currentState.phoneStates.phoneD.lastNotifiedDiscountPct,
+    },
+    {
+      userId: 'phoneC',
+      label: 'Buyer C',
+      searchedAt: '2m ago',
+      searchCount: 2,
+      isFrequentBuyer: false,
+      searchedSku: currentState.activeProduct.sku,
+      ordered: currentState.phoneStates.phoneC.ordered,
+      notificationCount: currentState.phoneStates.phoneC.notificationCount || 0,
+      lastNotifiedDiscountPct: currentState.phoneStates.phoneC.lastNotifiedDiscountPct,
+    },
+    {
+      userId: 'phoneE',
+      label: 'Control Shopper',
+      searchedAt: '10s ago',
+      searchCount: 1,
+      isFrequentBuyer: false,
+      searchedSku: 'SKU-UNRELATED-EARBUDS', // strictly excluded by SKU check
+      ordered: false,
+      notificationCount: 0,
+    },
+  ];
+
+  const isInitial = !currentState.finalStretchEntered;
+  if (inFinalStretch && isInitial) {
+    currentState.finalStretchEntered = true;
   }
 
-  // Determine nearest milestone target:
-  // Case 1: Below lower anchor (e.g. 1 unit in escrow -> target lower anchor 2 units @ 3% off)
-  // Case 2: At or above lower anchor (e.g. 2 units in escrow -> target mid tier 3 units @ 6.5% off)
-  const isBelowLowerAnchor = currentCount < currentState.minQtyForDiscount;
-  let targetMilestoneQty: number;
-  let dynamicResult: DynamicDiscountResult;
+  const decision = evaluateEqualOpportunityBroadcast({
+    secondsRemaining: currentState.secondsRemaining,
+    totalSeconds: MAX_WINDOW_SECONDS,
+    currentOrderCount: currentCount,
+    targetQty: currentState.targetQty,
+    minQtyForDiscount: currentState.minQtyForDiscount,
+    retailPrice: currentState.activeProduct.retailPrice,
+    discountTiers: currentState.discountTiers,
+    targetSku: currentState.activeProduct.sku,
+    candidates,
+    isInitialBroadcast: isInitial,
+  });
 
-  if (isBelowLowerAnchor) {
-    targetMilestoneQty = currentState.minQtyForDiscount; // 2 units
-    dynamicResult = computeDynamicDiscount(targetMilestoneQty, currentState.discountTiers);
-  } else {
-    targetMilestoneQty = Math.min(currentState.targetQty, currentCount + 1); // e.g. 3 units
-    dynamicResult = computeDynamicDiscount(targetMilestoneQty, currentState.discountTiers);
-  }
+  currentState.couponTargetingSummary = decision.summary;
 
-  const gap = targetMilestoneQty - currentCount;
-  const discountPct = dynamicResult.discount;
-  const discountPctVal = dynamicResult.discountPct; // e.g. 3 or 6.5
-  const discountedPrice = Math.round(currentState.activeProduct.retailPrice * (1 - discountPct));
+  if (decision.broadcastCandidates.length > 0) {
+    const broadcastedNames: string[] = [];
 
-  // Log volume check and target intent
-  if (isBelowLowerAnchor) {
-    addLog(
-      `${getFormattedTime()} Volume check: ${currentCount}/${currentState.targetQty} units, below lower anchor (${currentState.minQtyForDiscount} units).\n  Gap=${gap}, time remaining=${currentState.secondsRemaining}s. Dispatching nudge toward lower anchor.`
-    );
-    addLog(
-      `${getFormattedTime()} Targeting engine: evaluating candidates for lower-anchor unlock offer (${discountPctVal}% off, ₹${discountedPrice.toLocaleString('en-IN')})...`
-    );
-  } else if (dynamicResult.isInterpolated) {
-    addLog(
-      `${getFormattedTime()} Mid-tier discount computed (deterministic): ${targetMilestoneQty}/${currentState.targetQty} units\n  formula: ${dynamicResult.formulaString}\n  anchors: ${dynamicResult.lowAnchorStr}, ${dynamicResult.highAnchorStr} (seller-defined)`
-    );
-  }
+    for (const c of decision.broadcastCandidates) {
+      const uId = c.userId as 'phoneA' | 'phoneB' | 'phoneC' | 'phoneD';
+      if (currentState.phoneStates[uId] && !currentState.phoneStates[uId].ordered) {
+        currentState.phoneStates[uId].couponReceived = true;
+        currentState.phoneStates[uId].couponDetails = {
+          discountPct: decision.discountPct,
+          discountedPrice: decision.discountedPrice,
+          expiresSeconds: Math.min(currentState.secondsRemaining, 60),
+        };
+        currentState.phoneStates[uId].notificationCount = (currentState.phoneStates[uId].notificationCount || 0) + 1;
+        currentState.phoneStates[uId].lastNotifiedDiscountPct = decision.discountPct;
 
-  // Build candidate pool: anyone who has NOT ordered
-  const candidates: { userId: string; label: string; searchedAt: string; searchCount: number; isFrequentBuyer: boolean }[] = [];
-
-  if (!currentState.phoneStates.phoneA.ordered) {
-    candidates.push({ userId: 'phoneA', label: 'Buyer A', searchedAt: '30s ago', searchCount: 2, isFrequentBuyer: false });
-  }
-  if (!currentState.phoneStates.phoneB.ordered) {
-    candidates.push({ userId: 'phoneB', label: 'Buyer B', searchedAt: '45s ago', searchCount: 2, isFrequentBuyer: false });
-  }
-  if (!currentState.phoneStates.phoneD.ordered) {
-    candidates.push({ userId: 'phoneD', label: 'Standing-Order Agent', searchedAt: '1m ago', searchCount: 3, isFrequentBuyer: true });
-  }
-  if (!currentState.phoneStates.phoneC.ordered) {
-    candidates.push({ userId: 'phoneC', label: 'Buyer C', searchedAt: '2m ago', searchCount: 2, isFrequentBuyer: false });
-  }
-
-  if (candidates.length === 0) return;
-
-  let selectedUserIds: string[] = [];
-  let targetingSummary = '';
-
-  isTargetingInProgress = true;
-  try {
-    const targeting = await executeCouponTargeting({
-      productId: currentState.activeProduct.id,
-      productName: currentState.activeProduct.name,
-      gap,
-      maxNudges: 2,
-      maxCouponValue: Math.round(discountPctVal),
-      candidates,
-    });
-
-    if (currentState.windowClosed || currentState.secondsRemaining <= 0) {
-      return;
-    }
-
-    selectedUserIds = targeting.selected.map((s) => s.userId);
-    targetingSummary = targeting.summary || '';
-    currentState.couponTargetingSummary = targetingSummary;
-
-    if (targeting.isFallback) {
-      addLog(
-        `${getFormattedTime()} Targeting fallback: Bounded deterministic selection engaged for ${candidates.map((c) => c.label).join(', ')}.`
-      );
-    } else {
-      addAiLog(`${getFormattedTime()} LLM targeting active (${targeting.modelUsed}): candidate pool evaluated.`);
-      addAiLog(`${getFormattedTime()} Targeting summary: "${targetingSummary}"`);
-      for (const sel of targeting.selected) {
-        addAiLog(`${getFormattedTime()} -> ${sel.userId}: "${sel.reason}"`);
-      }
-      addLog(
-        `${getFormattedTime()} AI Nudge: LLM (${targeting.modelUsed}) targeted ${selectedUserIds.map((id) => candidates.find((c) => c.userId === id)?.label || id).join(', ')} with ${discountPctVal}% coupon.`
-      );
-    }
-  } catch (err) {
-    console.warn('Coupon targeting execution failed, engaging fallback:', err);
-    selectedUserIds = candidates.slice(0, 2).map((c) => c.userId);
-    targetingSummary = 'Deterministic selection: Targeted candidates to close volume gap.';
-    currentState.couponTargetingSummary = targetingSummary;
-    addLog(
-      `${getFormattedTime()} Targeting fallback: Issued targeted coupon to close volume gap.`
-    );
-  } finally {
-    isTargetingInProgress = false;
-  }
-
-  const nudgedCandidates: string[] = [];
-
-  // Increment total nudge count
-  currentState.nudgeCount += 1;
-
-  for (const userId of selectedUserIds) {
-    if (userId === 'phoneA' && !currentState.phoneStates.phoneA.ordered) {
-      currentState.phoneStates.phoneA.couponReceived = true;
-      currentState.phoneStates.phoneA.couponDetails = {
-        discountPct: discountPctVal,
-        discountedPrice,
-        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
-      };
-      nudgedCandidates.push('Buyer A');
-    } else if (userId === 'phoneB' && !currentState.phoneStates.phoneB.ordered) {
-      currentState.phoneStates.phoneB.couponReceived = true;
-      currentState.phoneStates.phoneB.couponDetails = {
-        discountPct: discountPctVal,
-        discountedPrice,
-        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
-      };
-      nudgedCandidates.push('Buyer B');
-    } else if (userId === 'phoneC' && !currentState.phoneStates.phoneC.ordered) {
-      currentState.phoneStates.phoneC.couponReceived = true;
-      currentState.phoneStates.phoneC.status = 'nudged';
-      currentState.phoneStates.phoneC.couponDetails = {
-        discountPct: discountPctVal,
-        discountedPrice,
-        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
-      };
-      nudgedCandidates.push('Buyer C');
-    } else if (userId === 'phoneD' && !currentState.phoneStates.phoneD.ordered) {
-      currentState.phoneStates.phoneD.couponReceived = true;
-      currentState.phoneStates.phoneD.status = 'logic_awaiting';
-      currentState.phoneStates.phoneD.couponDetails = {
-        discountPct: discountPctVal,
-        discountedPrice,
-        expiresSeconds: Math.min(currentState.secondsRemaining, 60),
-      };
-      nudgedCandidates.push('Standing-Order Agent');
-    }
-  }
-
-  if (nudgedCandidates.length > 0) {
-    addLog(
-      `${getFormattedTime()} Threshold check: ${currentCount}/${currentState.targetQty} units locked (nudge ${currentState.nudgeCount}/${MAX_NUDGES_PER_WINDOW}). Dispatched ${discountPctVal}% unlock offer (₹${discountedPrice.toLocaleString('en-IN')}) to: ${nudgedCandidates.join(', ')}.`
-    );
-  }
-
-  // If Standing-Order Agent received a coupon, evaluate condition:
-  if (currentState.phoneStates.phoneD.couponReceived && !currentState.phoneStates.phoneD.ordered) {
-    if (discountedPrice <= currentState.phoneStates.phoneD.targetMaxPrice) {
-      if (pendingPhoneDTimeout) {
-        clearTimeout(pendingPhoneDTimeout);
-        pendingPhoneDTimeout = null;
-      }
-      pendingPhoneDTimeout = setTimeout(async () => {
-        pendingPhoneDTimeout = null;
-        if (!currentState.windowClosed && !currentState.phoneStates.phoneD.ordered) {
-          await autoAuthorizePhoneDIfNeeded();
+        if (uId === 'phoneC') {
+          currentState.phoneStates.phoneC.status = 'nudged';
+        } else if (uId === 'phoneD') {
+          currentState.phoneStates.phoneD.status = 'logic_awaiting';
         }
-      }, 400);
-    } else {
-      addLog(
-        `${getFormattedTime()} Standing-Order Agent evaluated offer: ₹${discountedPrice.toLocaleString('en-IN')} > target ceiling (₹${currentState.phoneStates.phoneD.targetMaxPrice.toLocaleString('en-IN')}). Standing by.`
-      );
+        broadcastedNames.push(c.label);
+      }
     }
+
+    // Audit log formatting:
+    addLog(`${getFormattedTime()} ${decision.reason}`);
+
+    // If Standing-Order Agent received a coupon, evaluate condition:
+    if (currentState.phoneStates.phoneD.couponReceived && !currentState.phoneStates.phoneD.ordered) {
+      if (decision.discountedPrice <= currentState.phoneStates.phoneD.targetMaxPrice) {
+        if (pendingPhoneDTimeout) {
+          clearTimeout(pendingPhoneDTimeout);
+          pendingPhoneDTimeout = null;
+        }
+        pendingPhoneDTimeout = setTimeout(async () => {
+          pendingPhoneDTimeout = null;
+          if (!currentState.windowClosed && !currentState.phoneStates.phoneD.ordered) {
+            await autoAuthorizePhoneDIfNeeded();
+          }
+        }, 400);
+      } else {
+        addLog(
+          `${getFormattedTime()} Standing-Order Agent evaluated offer: ₹${decision.discountedPrice.toLocaleString('en-IN')} > target ceiling (₹${currentState.phoneStates.phoneD.targetMaxPrice.toLocaleString('en-IN')}). Standing by.`
+        );
+      }
+    }
+  } else if (isTick && !decision.tierChanged && decision.isReNotification && decision.eligibleCandidates.length > 0) {
+    // Throttled logging of unchanged tier check every RECHECK_INTERVAL_SECONDS
+    const shouldLog =
+      currentState.lastBroadcastCheckRemaining === null ||
+      currentState.lastBroadcastCheckRemaining - currentState.secondsRemaining >= RECHECK_INTERVAL_SECONDS;
+
+    if (shouldLog) {
+      currentState.lastBroadcastCheckRemaining = currentState.secondsRemaining;
+      addLog(`${getFormattedTime()} ${decision.reason}`);
+    }
+  } else if (isInitial && decision.eligibleCandidates.length === 0) {
+    // Log empty pool when final stretch begins
+    addLog(`${getFormattedTime()} ${decision.reason}`);
   }
 }
+
+// Backwards-compatible alias for existing endpoints
+export async function checkThresholdAndTriggerCoupon(force: boolean = false) {
+  return evaluateAndDispatchBroadcast(force, false);
+}
+
 
 export async function addSimulatedOrders(count: number) {
   for (let i = 0; i < count; i++) {
@@ -628,7 +620,7 @@ export async function closeWindowEngine() {
       addLog(
         `${getFormattedTime()} Mid-tier discount computed (deterministic): ${finalCount}/${currentState.targetQty} units\n  formula: ${dynamicResult.formulaString}\n  anchors: ${dynamicResult.lowAnchorStr}, ${dynamicResult.highAnchorStr} (seller-defined)`
       );
-      addAiLog(
+      addLog(
         `${getFormattedTime()} Settlement: Window closed at ${finalCount}/${currentState.targetQty}. Applied deterministic ${discountPctVal}% discount tier (${dynamicResult.formulaString}). Escrow equalized.`
       );
     } else if (hitMaxTier) {
@@ -751,6 +743,8 @@ export function resetState() {
   currentState.phoneStates.phoneD.instruction = `Buy ${currentProduct.name} if price drops to ₹75,000 or below`;
   currentState.phoneStates.phoneD.targetMaxPrice = Math.round(currentProduct.retailPrice * 0.94);
   currentState.razorpayKeys = currentKeys;
+  currentState.finalStretchEntered = false;
+  currentState.lastBroadcastCheckRemaining = null;
   currentState.logs = [
     `${getFormattedTime()} System reset complete. Ready for new demand aggregation cycle (${currentProduct.name}).`,
   ];

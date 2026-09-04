@@ -156,27 +156,26 @@ sequenceDiagram
 ## 🧠 Rubric 3: AI Judgment — And Where We Chose NOT to Use AI
 
 ### The Philosophy of Bounded Agency
-In autonomous commerce, large language models are exceptional at **unstructured reasoning** and terrible at **financial determinism**. LLMs hallucinate numbers, misinterpret negative constraints under load, and should **never hold write permissions to financial ledgers**.
+In autonomous commerce, large language models are exceptional at **unstructured conversational reasoning** (e.g. natural language intent parsing) and terrible at **financial determinism** and **algorithmic fairness**. LLMs hallucinate numbers, misinterpret negative constraints under load, introduce arbitrary ranking bias between shoppers, and should **never hold write permissions to financial ledgers or payment-adjacent gating**.
 
-We strictly demarcated what is AI-driven versus what is deterministic code:
+We strictly demarcated what is AI-driven versus where we deliberately chose pure deterministic rule-based code:
 
 ```
 ┌───────────────────────────────────────────────┬───────────────────────────────────────────────┐
 │        WHERE WE CHOSE TO USE AI (LLM)         │    WHERE WE DELIBERATELY CHOSE NOT TO USE AI  │
 ├───────────────────────────────────────────────┼───────────────────────────────────────────────┤
-│ 1. Natural Language Intent Parsing:           │ 1. Payment Captures & Refund Amounts:         │
-│    Translates messy buyer prompts into SKU,   │    Pure deterministic math ($R = P_r - P_c$). │
-│    price caps, and confidence ratings.        │    Zero model involvement in ledger numbers.  │
+│ 1. Natural Language Intent Parsing:           │ 1. Equal-Opportunity Nudge Broadcast:         │
+│    Translates messy buyer prompts into SKU,   │    100% rule-based broadcast to all eligible  │
+│    price caps, and confidence ratings.        │    SKU searchers simultaneously. Zero LLM     │
+│                                               │    ranking bias, zero rate-limit failure risk.│
 │                                               │                                               │
-│ 2. Contextual Coupon Targeting:               │ 2. Hard Discount Ceiling ($D_{\max} = 0.10$): │
-│    Scores active browsing pool, search        │    Strict 10% maximum discount cap enforced   │
-│    recency, and frequent-buyer history to     │    by code; model cannot exceed merchant      │
-│    select high-propensity nudge recipients.   │    approved boundaries.                       │
+│ 2. Unstructured Buyer Guidance:               │ 2. Payment Captures & Refund Amounts:         │
+│    Assists buyers in discovering products and │    Pure deterministic math (R = P_auth - P_f).│
+│    understanding dynamic group schedules.     │    Zero model involvement in ledger numbers.  │
 │                                               │                                               │
-│ 3. Human-Readable Audit Reasoning:            │ 3. Settlement & Window Expiry State Machine:  │
-│    Generates transparent, auditable 1-line    │    Deterministic countdown timers and state   │
-│    justifications for why each user was       │    transitions governed by immutable rules.   │
-│    selected.                                  │                                               │
+│ 3. Transparent Intent Audit Logs:             │ 3. Hard Safety Bounds & Change Gating:        │
+│    Generates transparent, auditable 1-line    │    Max 10% discount cap, max 3 notifs/buyer,  │
+│    justifications for user intent matches.    │    and time-gated final 40% window stretch.   │
 └───────────────────────────────────────────────┴───────────────────────────────────────────────┘
 ```
 

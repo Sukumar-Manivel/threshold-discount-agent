@@ -163,9 +163,9 @@ export default function BuyerPanel({
                   ? (orderB?.refundAmount || 0) > 0
                     ? `Settled — equalized with ₹${orderB?.refundAmount?.toLocaleString('en-IN')} refund credit`
                     : 'Settled — executed at group rate'
-                  : 'Purchased retail — triggered threshold nudge'
+                  : 'Purchased retail — escrow hold pending group close'
                 : phoneStates.phoneB.couponReceived
-                ? `Nudged — ${phoneStates.phoneB.couponDetails?.discountPct || 3}% off unlock offer active`
+                ? `Broadcast received — ${phoneStates.phoneB.couponDetails?.discountPct || 3}% off unlock offer active`
                 : 'Searching catalog — retail checkout ready'}
             </div>
             {windowClosed && (orderB?.refundAmount || 0) > 0 ? (
@@ -244,7 +244,7 @@ export default function BuyerPanel({
                   ? (orderD?.refundAmount || 0) > 0
                     ? `Settled — auto-authorized at ₹${orderD?.authorizedPrice?.toLocaleString('en-IN')}, equalized down with ₹${orderD?.refundAmount?.toLocaleString('en-IN')} refund`
                     : 'Settled — executed at group discount tier'
-                  : 'Trigger condition met — auto-purchased on nudge'
+                  : 'Trigger condition met — auto-purchased on broadcast'
                 : phoneStates.phoneD.status === 'logic_awaiting'
                 ? 'Logic awaiting — validating discount condition...'
                 : 'Rule set: buy if price drops to ₹75,000 or below'}
@@ -315,7 +315,7 @@ export default function BuyerPanel({
                 : windowClosed
                 ? 'Offer expired — window closed without purchase'
                 : phoneStates.phoneC.couponReceived
-                ? `Nudged — awaiting response (${phoneStates.phoneC.couponDetails?.discountPct || 3}% discount offer sent)`
+                ? `Broadcast received — awaiting response (${phoneStates.phoneC.couponDetails?.discountPct || 3}% discount offer sent)`
                 : 'Searching catalog — standing by'}
             </div>
             {windowClosed && (orderC?.refundAmount || 0) > 0 ? (

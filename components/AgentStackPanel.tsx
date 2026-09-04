@@ -4,8 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AppState } from '@/lib/store';
 import {
   MAX_DISCOUNT_DEPTH,
-  MAX_NUDGES_PER_WINDOW,
+  MAX_NOTIFICATIONS_PER_BUYER,
   MAX_WINDOW_SECONDS,
+  FINAL_STRETCH_PCT,
 } from '@/lib/constants';
 
 interface AgentStackPanelProps {
@@ -17,7 +18,7 @@ interface AuditLogViewerProps {
 }
 
 const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogViewerProps) {
-  const [filterType, setFilterType] = useState<'all' | 'escrow' | 'nudge' | 'settle' | 'ai'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'escrow' | 'broadcast' | 'settle' | 'ai'>('all');
   const logContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef<boolean>(true);
   const prevLogCountRef = useRef<number>(logs.length);
@@ -26,9 +27,9 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
     return logs.filter((log) => {
       const l = log.toLowerCase();
       if (filterType === 'escrow') return l.includes('authorized') || l.includes('escrow') || l.includes('captured');
-      if (filterType === 'nudge') return l.includes('nudge') || l.includes('coupon') || l.includes('threshold');
+      if (filterType === 'broadcast') return l.includes('broadcast') || l.includes('final stretch') || l.includes('coupon') || l.includes('nudge') || l.includes('tier check');
       if (filterType === 'settle') return l.includes('settlement') || l.includes('wholesale') || l.includes('refund') || l.includes('closed');
-      if (filterType === 'ai') return l.includes('llm') || l.includes('intent') || l.includes('targeting');
+      if (filterType === 'ai') return l.includes('intent parse') || l.includes('reasoning:') || l.includes('nlp') || l.includes('natural language');
       return true;
     });
   }, [logs, filterType]);
@@ -53,7 +54,7 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
     }
   }, [logs.length]);
 
-  const handleFilterChange = (type: 'all' | 'escrow' | 'nudge' | 'settle' | 'ai') => {
+  const handleFilterChange = (type: 'all' | 'escrow' | 'broadcast' | 'settle' | 'ai') => {
     setFilterType(type);
     isNearBottomRef.current = true;
     setTimeout(() => {
@@ -74,7 +75,7 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
           {([
             { id: 'all', label: 'All' },
             { id: 'escrow', label: 'Escrow' },
-            { id: 'nudge', label: 'Nudge' },
+            { id: 'broadcast', label: 'Broadcast' },
             { id: 'settle', label: 'Settle' },
             { id: 'ai', label: 'AI' },
           ] as const).map((tab) => (
@@ -101,9 +102,9 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
       >
         {filteredLogs.map((log, idx) => {
           let textColor = 'text-ink';
-          if (log.toLowerCase().includes('nudge') || log.toLowerCase().includes('coupon')) {
+          if (log.toLowerCase().includes('broadcast') || log.toLowerCase().includes('final stretch') || log.toLowerCase().includes('tier check') || log.toLowerCase().includes('coupon')) {
             textColor = 'text-oxblood';
-          } else if (log.toLowerCase().includes('settlement') || log.toLowerCase().includes('final')) {
+          } else if (log.toLowerCase().includes('settlement') || log.toLowerCase().includes('final') || log.toLowerCase().includes('refund')) {
             textColor = 'text-ledgergreen font-medium';
           } else if (log.toLowerCase().includes('authorized') || log.toLowerCase().includes('captured')) {
             textColor = 'text-navy';
@@ -154,16 +155,17 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
       };
     }
 
-    const hasNudgeOccurred =
+    const hasBroadcastOccurred =
+      state.finalStretchEntered ||
       state.phoneStates.phoneD.couponReceived ||
       state.phoneStates.phoneC.couponReceived ||
-      logs.some((l) => l.toLowerCase().includes('nudge') || l.toLowerCase().includes('coupon'));
+      logs.some((l) => l.toLowerCase().includes('broadcast') || l.toLowerCase().includes('final stretch'));
 
-    if (hasNudgeOccurred) {
+    if (hasBroadcastOccurred) {
       return {
         stage: 3,
-        title: 'Stage 3: Targeted nudge to high-intent candidates',
-        description: 'LLM evaluated candidate pool and issued discount coupon to Standing-Order Agent & Buyer C.',
+        title: 'Stage 3: Equal-opportunity broadcast to eligible pool',
+        description: 'Broadcast engine dispatched dynamic discount offer simultaneously to Standing-Order Agent & Buyer C (rule-based, no LLM).',
         badgeColor: 'text-oxblood bg-paper border-hairline',
       };
     }
@@ -171,7 +173,7 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
     if (currentCount >= 2) {
       return {
         stage: 2,
-        title: 'Stage 2: Demand aggregation & marginal analysis',
+        title: 'Stage 2: Demand aggregation & deterministic tiering',
         description: `Analyzing volume gap: ${currentCount}/${targetQty} orders locked in escrow.`,
         badgeColor: 'text-navy bg-paper border-hairline',
       };
@@ -191,7 +193,7 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
   const STAGES = [
     { num: 1, label: 'Authorization' },
     { num: 2, label: 'Aggregation' },
-    { num: 3, label: 'Nudge' },
+    { num: 3, label: 'Broadcast' },
     { num: 4, label: 'Close' },
     { num: 5, label: 'Settlement' },
   ];
@@ -308,22 +310,29 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
       </div>
 
       {/* Safety Bounds */}
-      <div className="grid grid-cols-4 gap-2 text-center text-xs">
-        <div className="bg-paper p-2 rounded border border-hairline">
-          <span className="text-[10px] text-muted block">Max window</span>
-          <span className="font-mono font-medium text-ink">{MAX_WINDOW_SECONDS}s</span>
+      <div className="space-y-1.5">
+        <div className="grid grid-cols-4 gap-2 text-center text-xs">
+          <div className="bg-paper p-2 rounded border border-hairline">
+            <span className="text-[10px] text-muted block">Max window</span>
+            <span className="font-mono font-medium text-ink">{MAX_WINDOW_SECONDS}s</span>
+          </div>
+          <div className="bg-paper p-2 rounded border border-hairline">
+            <span className="text-[10px] text-muted block">Max discount</span>
+            <span className="font-mono font-medium text-ink">{Math.round(MAX_DISCOUNT_DEPTH * 100)}%</span>
+          </div>
+          <div className="bg-paper p-2 rounded border border-hairline">
+            <span className="text-[10px] text-muted block">Min discount qty</span>
+            <span className="font-mono font-medium text-ink">{state.minQtyForDiscount} units</span>
+          </div>
+          <div className="bg-paper p-2 rounded border border-hairline">
+            <span className="text-[10px] text-muted block">Max notifs/buyer</span>
+            <span className="font-mono font-medium text-ink">{MAX_NOTIFICATIONS_PER_BUYER}</span>
+          </div>
         </div>
-        <div className="bg-paper p-2 rounded border border-hairline">
-          <span className="text-[10px] text-muted block">Max discount</span>
-          <span className="font-mono font-medium text-ink">{Math.round(MAX_DISCOUNT_DEPTH * 100)}%</span>
-        </div>
-        <div className="bg-paper p-2 rounded border border-hairline">
-          <span className="text-[10px] text-muted block">Min discount qty</span>
-          <span className="font-mono font-medium text-ink">{state.minQtyForDiscount} units</span>
-        </div>
-        <div className="bg-paper p-2 rounded border border-hairline">
-          <span className="text-[10px] text-muted block">Max nudges</span>
-          <span className="font-mono font-medium text-ink">{MAX_NUDGES_PER_WINDOW}</span>
+
+        {/* Time-gating transparent demo compression note */}
+        <div className="text-[10px] font-mono text-muted text-center pt-0.5">
+          Broadcast gating: final {Math.round(FINAL_STRETCH_PCT * 100)}% of window ({Math.round(MAX_WINDOW_SECONDS * FINAL_STRETCH_PCT)}s demo / ~3% & 1.5h in 48h prod)
         </div>
       </div>
 

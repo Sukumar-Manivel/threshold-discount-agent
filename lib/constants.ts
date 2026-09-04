@@ -68,9 +68,12 @@ export let DISCOUNT_TIERS: Record<number, number> = { ...DEFAULT_DISCOUNT_TIERS 
 
 export const MIN_QTY_FOR_ANY_DISCOUNT = 2;
 export const TARGET_QTY = 4;
-export const MAX_WINDOW_SECONDS = 60; // 1 minute demo window
+export const MAX_WINDOW_SECONDS = 60; // 1 minute demo window (production: 48 hours)
 export const MAX_DISCOUNT_DEPTH = 0.10; // 10% max off
-export const MAX_NUDGES_PER_WINDOW = 2;
+export const FINAL_STRETCH_PCT = 0.4; // Demo: final 40% of window (24s) — Production: ~3% (1.5h of 48h)
+export const MAX_NOTIFICATIONS_PER_BUYER = 3; // Safety cap on notifications per candidate per window
+export const RECHECK_INTERVAL_SECONDS = 6; // Demo check cadence (production: 30 minutes)
+
 
 export interface DynamicDiscountResult {
   discount: number; // e.g. 0.065

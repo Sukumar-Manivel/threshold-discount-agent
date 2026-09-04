@@ -35,25 +35,25 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
     },
     {
       step: 2,
-      title: 'Phase 2: Demand aggregation & threshold check',
+      title: 'Phase 2: Demand aggregation & deterministic tiering',
       actor: 'Decision Engine & Volume Accumulator',
       color: '#24344D',
       summary: 'Engine detects 2 units locked and computes dynamic 6.5% mid-tier discount via linear interpolation.',
       details:
-        'With 2 orders locked in escrow, the Decision Engine deterministically calculates the 3-unit mid-tier discount (3% + (3-2)/(4-2) × (10%-3%) = 6.5% off, saving ₹5,193 per unit). It signals the LLM targeting engine to evaluate active candidate sessions.',
+        'With 2 orders locked in escrow, the Decision Engine deterministically calculates the 3-unit mid-tier discount (3% + (3-2)/(4-2) × (10%-3%) = 6.5% off, saving ₹5,193 per unit). It prepares the equal-opportunity broadcast for the final 40% stretch.',
       badge: 'Target: 4 units (mid tier: 3 units / 6.5%)',
       activeNodeIds: ['razorpay_stack', 'offer_loop'],
       activeLinkKeys: ['razorpay_stack-offer_loop'],
     },
     {
       step: 3,
-      title: 'Phase 3: Targeted coupon nudge',
-      actor: 'LLM Targeting Engine',
+      title: 'Phase 3: Equal-opportunity coupon broadcast',
+      actor: 'Nudge Broadcast Engine',
       color: '#8C2F2F',
-      summary: 'Targeted unlock offers dispatched to Standing-Order Agent and Buyer C.',
+      summary: 'Equal-opportunity unlock offers broadcast simultaneously to all eligible candidates.',
       details:
-        'The LLM targeting model evaluates candidates based on recency and search intent. It dispatches a 6.5% discount coupon (₹74,707) to Standing-Order Agent and Buyer C. Unrelated sessions (Control shopper) are strictly excluded.',
-      badge: 'Nudge sent: 2 candidates',
+        'Entering the final stretch of the window, the broadcast engine evaluates all candidates who searched this exact SKU. It dispatches dynamic discount coupons (6.5% off, ₹74,707) simultaneously to Standing-Order Agent and Buyer C without LLM ranking. Control shopper is strictly excluded.',
+      badge: 'Broadcast: 2 candidates (simultaneous)',
       activeNodeIds: ['offer_loop', 'b3', 'b4', 'b5'],
       activeLinkKeys: ['offer_loop-b3', 'offer_loop-b4'],
     },
@@ -89,12 +89,12 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
     { id: 'b1', name: 'Buyer A (Manual)', val: '₹79,900 Escrow', sub: 'Early buyer', x: 75, y: 55, type: 'buyer' },
     { id: 'b2', name: 'Buyer B (Manual)', val: '₹79,900 Escrow', sub: 'Early buyer', x: 225, y: 55, type: 'buyer' },
     { id: 'b3', name: 'Standing-Order Agent', val: 'Auto-orders @ ≤ ₹75k', sub: 'Autonomous trigger', x: 385, y: 55, type: 'agent' },
-    { id: 'b4', name: 'Buyer C (Manual)', val: 'Nudged (6.5% offer)', sub: 'Deliberate gap', x: 545, y: 55, type: 'candidate' },
+    { id: 'b4', name: 'Buyer C (Manual)', val: 'Broadcast offer (6.5%)', sub: 'Deliberate gap', x: 545, y: 55, type: 'candidate' },
     { id: 'b5', name: 'Control Shopper', val: 'No offer sent', sub: 'Unrelated search', x: 695, y: 55, type: 'control' },
 
     // Middle Row: Processing Engines
     { id: 'razorpay_stack', name: 'Decision Engine & Escrow', val: 'Razorpay Escrow Hold', sub: 'Volume: 3/4 units', x: 225, y: 195, type: 'engine' },
-    { id: 'offer_loop', name: 'LLM Targeting Nudge', val: 'OpenRouter Model Cascade', sub: 'Bounded candidate pool', x: 465, y: 195, type: 'nudge' },
+    { id: 'offer_loop', name: 'Nudge Broadcast Engine', val: 'Rule-based, no LLM', sub: 'Equal-opportunity broadcast', x: 465, y: 195, type: 'nudge' },
     { id: 'seller', name: 'Seller Merchant Account', val: 'Wholesale Settlement', sub: '₹2,24,121 Net payout', x: 695, y: 195, type: 'seller' },
 
     // Bottom Row: Settlement & Equalization
@@ -105,9 +105,9 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
   const links = [
     { key: 'b1-razorpay_stack', from: 'b1', to: 'razorpay_stack', label: 'Auth hold (₹79.9k)' },
     { key: 'b2-razorpay_stack', from: 'b2', to: 'razorpay_stack', label: 'Auth hold (₹79.9k)' },
-    { key: 'razorpay_stack-offer_loop', from: 'razorpay_stack', to: 'offer_loop', label: 'Threshold trigger' },
-    { key: 'offer_loop-b3', from: 'offer_loop', to: 'b3', label: '6.5% unlock coupon' },
-    { key: 'offer_loop-b4', from: 'offer_loop', to: 'b4', label: '6.5% unlock coupon' },
+    { key: 'razorpay_stack-offer_loop', from: 'razorpay_stack', to: 'offer_loop', label: 'Final stretch trigger' },
+    { key: 'offer_loop-b3', from: 'offer_loop', to: 'b3', label: '6.5% broadcast coupon' },
+    { key: 'offer_loop-b4', from: 'offer_loop', to: 'b4', label: '6.5% broadcast coupon' },
     { key: 'b3-razorpay_stack', from: 'b3', to: 'razorpay_stack', label: 'Auto-order (3rd unit)' },
     { key: 'razorpay_stack-seller', from: 'razorpay_stack', to: 'seller', label: 'Wholesale payout' },
     { key: 'razorpay_stack-refunds', from: 'razorpay_stack', to: 'refunds', label: 'Escrow equalization' },
@@ -339,7 +339,7 @@ export default function FlowDiagramPage({ onSwitchToDemo }: FlowDiagramPageProps
                 <span className="w-2 h-0.5 bg-[#D5D1C8] inline-block" /> Inactive paths (dimmed)
               </span>
             </div>
-            <span>5 Participants · Razorpay Escrow · LLM Nudge</span>
+            <span>5 Participants · Razorpay Escrow · Broadcast Engine</span>
           </div>
         </div>
 

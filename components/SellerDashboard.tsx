@@ -236,15 +236,15 @@ export default function SellerDashboard({ state }: SellerDashboardProps) {
               >
                 <div className="flex items-center justify-center gap-1">
                   <span className="text-[10px] text-muted">3 units</span>
-                  <span className="text-[9px] font-mono px-1 py-0.2 bg-paper border border-hairline rounded text-navy">
-                    AI
+                  <span className="text-[9px] font-mono px-1 py-0.2 bg-paper border border-hairline rounded text-muted">
+                    Mid
                   </span>
                 </div>
                 <div className="font-bold text-ink mt-0.5">
                   {hasReached3 ? `${midTierCalc.discountPct}% off` : `${midTierCalc.discountPct}% est.`}
                 </div>
                 <div className="text-[9px] text-muted opacity-80">
-                  {hasReached3 ? 'Computed' : 'Dynamic math'}
+                  {hasReached3 ? 'Interpolated' : 'Dynamic math'}
                 </div>
               </div>
 

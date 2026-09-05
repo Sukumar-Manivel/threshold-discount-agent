@@ -24,57 +24,8 @@ Every money-moving action is **explainable, bounded, and gated** — the exact b
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph S1["1 · Buyer Inputs"]
-        A["Buyer A<br/>Manual"]
-        B["Buyer B<br/>Manual"]
-        S["Standing-Order Agent<br/>Autonomous trigger"]
-        C["Buyer C<br/>Manual candidate"]
-        X["Control Shopper<br/>Unrelated search"]
-    end
+<img width="1387" height="1017" alt="image" src="https://github.com/user-attachments/assets/4c2efd02-b44f-4169-a21f-121fabb52e53" />
 
-    subgraph S2["2 · Decision Engine Core"]
-        ESC["Razorpay Escrow<br/>authorize · hold"]
-        VOL["Volume Accumulator<br/>& Aggregation Window"]
-    end
-
-    subgraph S3["3 · Nudge Broadcast Engine — rule-based, no LLM"]
-        NB["Eligible-pool broadcast<br/>equal offer, same moment"]
-    end
-
-    subgraph S4["4 · Deterministic Tier Engine"]
-        TIER["Linear interpolation between<br/>seller-defined anchor tiers"]
-    end
-
-    subgraph S5["5 · Settlement & Output"]
-        PE["Price Equalization<br/>refund credits"]
-        SM["Seller Merchant Account<br/>wholesale payout"]
-        FUL["Fulfillment<br/>revealed only post-settlement"]
-    end
-
-    subgraph S6["6 · Bounds & Guardrails"]
-        BND["Max window · Max discount<br/>Min qty per tier · Max notifs/buyer"]
-    end
-
-    A --> ESC
-    B --> ESC
-    S --> ESC
-    C -.->|"no purchase"| VOL
-    ESC --> VOL
-    VOL -->|"gap detected"| NB
-    NB -->|"same offer, same moment"| S
-    NB -->|"same offer, same moment"| C
-    X -.->|"never targeted"| NB
-    VOL --> TIER
-    TIER --> PE
-    PE -->|"refund"| A
-    PE -->|"refund"| B
-    VOL --> SM
-    SM --> FUL
-    BND -.->|"enforced on"| NB
-    BND -.->|"enforced on"| TIER
-```
 
 **Flow legend:** solid arrows are real money/data actions (orders, offers, refunds, payouts). Dashed arrows mark deliberate non-actions — a buyer who never converts, or the Control Shopper who is never targeted at all. Both are shown on purpose: proving what *doesn't* happen is as important to "bounded and gated" as showing what does.
 

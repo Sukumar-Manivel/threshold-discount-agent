@@ -7,6 +7,7 @@ import {
   MAX_NOTIFICATIONS_PER_BUYER,
   MAX_WINDOW_SECONDS,
   FINAL_STRETCH_PCT,
+  computeDynamicDiscount,
 } from '@/lib/constants';
 
 interface AgentStackPanelProps {
@@ -18,7 +19,7 @@ interface AuditLogViewerProps {
 }
 
 const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogViewerProps) {
-  const [filterType, setFilterType] = useState<'all' | 'escrow' | 'broadcast' | 'settle' | 'ai'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'escrow' | 'broadcast' | 'settle'>('all');
   const logContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef<boolean>(true);
   const prevLogCountRef = useRef<number>(logs.length);
@@ -29,7 +30,6 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
       if (filterType === 'escrow') return l.includes('authorized') || l.includes('escrow') || l.includes('captured');
       if (filterType === 'broadcast') return l.includes('broadcast') || l.includes('final stretch') || l.includes('coupon') || l.includes('nudge') || l.includes('tier check');
       if (filterType === 'settle') return l.includes('settlement') || l.includes('wholesale') || l.includes('refund') || l.includes('closed');
-      if (filterType === 'ai') return l.includes('intent parse') || l.includes('reasoning:') || l.includes('nlp') || l.includes('natural language');
       return true;
     });
   }, [logs, filterType]);
@@ -54,7 +54,7 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
     }
   }, [logs.length]);
 
-  const handleFilterChange = (type: 'all' | 'escrow' | 'broadcast' | 'settle' | 'ai') => {
+  const handleFilterChange = (type: 'all' | 'escrow' | 'broadcast' | 'settle') => {
     setFilterType(type);
     isNearBottomRef.current = true;
     setTimeout(() => {
@@ -65,7 +65,7 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-[190px]">
+    <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center justify-between pb-2 border-b border-hairline">
         <span className="text-xs font-semibold text-ink">
           Audit log ledger
@@ -77,7 +77,6 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
             { id: 'escrow', label: 'Escrow' },
             { id: 'broadcast', label: 'Broadcast' },
             { id: 'settle', label: 'Settle' },
-            { id: 'ai', label: 'AI' },
           ] as const).map((tab) => (
             <button
               key={tab.id}
@@ -98,7 +97,7 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
       <div
         ref={logContainerRef}
         onScroll={handleScroll}
-        className="flex-1 bg-paper border border-hairline rounded-lg p-3 font-mono text-[11px] leading-relaxed overflow-y-auto space-y-1.5 mt-2 max-h-[220px] custom-scrollbar"
+        className="flex-1 min-h-0 bg-paper border border-hairline rounded-lg font-mono text-[11px] overflow-y-auto divide-y divide-hairline mt-2 custom-scrollbar"
       >
         {filteredLogs.map((log, idx) => {
           let textColor = 'text-ink';
@@ -113,9 +112,9 @@ const AuditLogViewer = React.memo(function AuditLogViewer({ logs }: AuditLogView
           }
 
           return (
-            <div key={idx} className={`${textColor} flex items-start gap-1.5`}>
-              <span className="text-muted opacity-40 select-none">›</span>
-              <span className="break-words">{log}</span>
+            <div key={idx} className={`${textColor} flex items-start gap-2 px-3 py-2.5`}>
+              <span className="text-muted opacity-40 select-none shrink-0 mt-0.5">›</span>
+              <span className="break-words leading-relaxed">{log}</span>
             </div>
           );
         })}
@@ -273,10 +272,13 @@ export default function AgentStackPanel({ state }: AgentStackPanelProps) {
               />
             </div>
             <div className="flex justify-between text-[10px] text-muted font-mono">
-              <span>0</span>
-              <span>Mid tier (3)</span>
-              <span>Top tier (4)</span>
-            </div>
+  <span>0</span>
+  <span>Mid tier (3)</span>
+  <span>Top tier (4)</span>
+</div>
+<p className="text-xs text-muted mt-1">
+  Interpolation formula: ((upperAnchor - lowerAnchor) / (upperQty - lowerQty)) * (currentQty - lowerQty) + lowerAnchor
+</p>
           </div>
         </div>
 

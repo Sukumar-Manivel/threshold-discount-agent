@@ -215,7 +215,7 @@ export default function Home() {
 
   if (!state) {
     return (
-      <div className="min-h-screen bg-paper flex items-center justify-center text-muted font-mono text-xs">
+      <div className="h-[100dvh] bg-paper flex items-center justify-center text-muted font-mono text-xs">
         <div className="flex items-center gap-2">
           <span>Initializing Razorpay Agent Stack Decision Engine...</span>
         </div>
@@ -224,7 +224,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-paper text-ink flex flex-col font-sans">
+    <div className="h-[100dvh] overflow-hidden bg-paper text-ink flex flex-col font-sans">
       {/* Navigation Top Bar */}
       <Header
         state={state}
@@ -240,13 +240,13 @@ export default function Home() {
 
       {/* Main Content Area */}
       {viewMode === 'architecture' ? (
-        <main className="flex-1 p-6 max-w-[1700px] w-full mx-auto">
+        <main className="flex-1 min-h-0 overflow-hidden p-6 max-w-[1700px] w-full mx-auto">
           <FlowDiagramPage onSwitchToDemo={() => setViewMode('demo')} />
         </main>
       ) : (
-        <main className="flex-1 p-6 max-w-[1700px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Panel 1: Buyer Ledger (Left Column - 5 rows) */}
-          <div className="lg:col-span-4 h-[calc(100vh-100px)] min-h-[580px]">
+        <main className="flex-1 min-h-0 flex flex-row gap-4 px-5 pt-3 pb-4 w-full overflow-hidden">
+          {/* Panel 1: Buyer Ledger (Left Column ~33%) */}
+          <div className="w-[33%] min-w-0 flex flex-col overflow-y-auto custom-scrollbar">
             <BuyerPanel
               state={state}
               onOpenPaymentModal={handleOpenPaymentModal}
@@ -255,13 +255,13 @@ export default function Home() {
             />
           </div>
 
-          {/* Panel 2: Agent Stack Decision Engine (Center Column) */}
-          <div className="lg:col-span-5 h-[calc(100vh-100px)] min-h-[580px]">
+          {/* Panel 2: Agent Stack Decision Engine (Center Column ~42%) */}
+          <div className="flex-1 min-w-0 flex flex-col overflow-y-auto custom-scrollbar">
             <AgentStackPanel state={state} />
           </div>
 
-          {/* Panel 3: Seller Dashboard (Right Column) */}
-          <div className="lg:col-span-3 h-[calc(100vh-100px)] min-h-[580px]">
+          {/* Panel 3: Seller Dashboard (Right Column ~25%) */}
+          <div className="w-[25%] min-w-0 flex flex-col overflow-y-auto custom-scrollbar">
             <SellerDashboard state={state} />
           </div>
         </main>
